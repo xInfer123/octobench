@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "octobench"
+version = "0.1.0"
+description = "Benchmark framework for comparing LLM tools + configs"
+requires-python = ">=3.9"
+dependencies = ["PyYAML>=6.0"]
+
+[project.scripts]
+octobench = "cli.main:main"
+
+[tool.setuptools]
+packages = ["cli", "judges", "runners", "scoring", "providers"]

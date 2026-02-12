@@ -1,0 +1,9 @@
+id: example_case
+name: Example Case
+category: edit
+# simple | complex
+difficulty: simple
+system_prompt: |
+  You are a coding assistant.
+instruction: |
+  Update the file as requested.

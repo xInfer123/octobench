@@ -1,0 +1,45 @@
+# Octobench: Agent Onboarding
+
+This file is the entrypoint for contributors and agents.
+
+## Start Here
+- Read `docs/USAGE.md` for how to run benchmarks.
+- Read `docs/ARCHITECTURE.md` for core concepts and flow.
+- Read `docs/EXTENDING.md` to add new cases or tools.
+
+## Repo Layout
+- `cases/`: benchmark cases (simple/complex) with scripts + fixtures
+- `configs/`: model registry and octomind config
+- `providers/`: provider implementations (`codex`, `octomind`) with shared interface
+- `judges/`: judge prompt + parsing
+- `scoring/`: metrics + aggregation
+- `results/`: output JSON for runs
+
+## How It Works (Short)
+1. For each case + provider + benchmark model, create an isolated workspace.
+2. Copy scripts into workspace.
+3. Run `setup.sh` (responsible for full setup), take baseline snapshot, then the tool, then `quality.sh` and `validate.sh`.
+4. Feed tool output + script logs into the judge.
+5. Compute scores and write JSON.
+
+## Rules
+- `setup.sh`, `quality.sh`, `validate.sh` are bash only.
+- Use `$CASE_DIR` inside scripts to reference case assets (e.g., `$CASE_DIR/fixtures`).
+- Evidence is captured via before/after snapshots and diffed for the judge.
+- `validate.sh` non-zero exit is a hard fail.
+- Judge prompt is hardcoded in `judges/prompts.py`.
+
+## Quick Run
+```bash
+python3 -m cli.main run --cases cases --providers codex,octomind --verbosity normal
+```
+
+## Add a Case
+- Copy `templates/case.yaml` and create a new case folder.
+- Put fixtures under `fixtures/`.
+- Add scripts as needed.
+
+## Add a Tool
+- Add `providers/<name>.py` implementing `Provider.run_task(...)`.
+- Register it in `providers/factory.py`.
+- Add model mapping under `configs/models.yaml -> models.<benchmark>.providers.<name>`.
