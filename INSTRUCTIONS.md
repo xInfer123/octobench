@@ -8,7 +8,7 @@ This file is the entrypoint for contributors and agents.
 - Read `docs/EXTENDING.md` to add new cases or tools.
 
 ## Repo Layout
-- `cases/`: benchmark cases (simple/complex) with scripts + fixtures
+- `cases/`: benchmark cases in `cases/<segment>/<sub_or_lang>/<case_name>/` with scripts + fixtures
 - `configs/`: model registry and octomind config
 - `providers/`: provider implementations (`codex`, `octomind`) with shared interface
 - `judges/`: judge prompt + parsing

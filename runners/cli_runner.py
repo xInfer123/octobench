@@ -24,6 +24,21 @@ def _extract_tokens(text: str, regex: Optional[str]) -> Optional[int]:
         return None
 
 
+def _resolve_executable(cmd0: str, env: Dict[str, str]) -> str:
+    # If already a path, use as-is.
+    if os.path.sep in cmd0:
+        return cmd0
+    path_value = env.get("PATH", os.environ.get("PATH", ""))
+    for raw_dir in path_value.split(os.pathsep):
+        if not raw_dir:
+            continue
+        expanded = os.path.expandvars(os.path.expanduser(raw_dir))
+        candidate = os.path.join(expanded, cmd0)
+        if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
+            return candidate
+    return cmd0
+
+
 def run_cli(prompt: str, workdir: str, meta: Dict) -> RunResult:
     command = meta.get("command")
     if not command:
@@ -57,15 +72,34 @@ def run_cli(prompt: str, workdir: str, meta: Dict) -> RunResult:
     stdin_prompt = meta.get("stdin_prompt", False)
     env = {**os.environ, **meta.get("env", {})}
     env = {k: _subst(v) if isinstance(v, str) else v for k, v in env.items()}
+    if cmd:
+        cmd[0] = _resolve_executable(cmd[0], env)
 
-    proc = subprocess.run(
-        cmd,
-        cwd=workdir,
-        capture_output=True,
-        text=True,
-        input=prompt if stdin_prompt else None,
-        env=env,
-    )
+    try:
+        proc = subprocess.run(
+            cmd,
+            cwd=workdir,
+            capture_output=True,
+            text=True,
+            input=prompt if stdin_prompt else None,
+            env=env,
+        )
+        proc_stdout = proc.stdout or ""
+        proc_stderr = proc.stderr or ""
+        proc_code = proc.returncode
+    except OSError as e:
+        elapsed_ms = int((time.time() - start) * 1000)
+        err = f"Failed to execute command: {' '.join(cmd)} ({e.__class__.__name__}: {e})"
+        return RunResult(
+            stdout="",
+            stderr=err,
+            exit_code=126 if isinstance(e, PermissionError) else 1,
+            elapsed_ms=elapsed_ms,
+            input_tokens=None,
+            output_tokens=None,
+            total_tokens=None,
+            cached_input_tokens=None,
+        )
     elapsed_ms = int((time.time() - start) * 1000)
 
     # If tool writes the final message to output_file, prefer that.
@@ -75,10 +109,10 @@ def run_cli(prompt: str, workdir: str, meta: Dict) -> RunResult:
             with open(output_file, "r", encoding="utf-8") as f:
                 stdout = f.read()
         except Exception:
-            stdout = proc.stdout or ""
+            stdout = proc_stdout
     else:
-        stdout = proc.stdout or ""
-    stderr = proc.stderr or ""
+        stdout = proc_stdout
+    stderr = proc_stderr
 
     input_tokens = None
     output_tokens = None
@@ -88,7 +122,7 @@ def run_cli(prompt: str, workdir: str, meta: Dict) -> RunResult:
 
     # If tool emits JSONL events, parse usage from stdout
     if meta.get("json_events"):
-        for line in (proc.stdout or "").splitlines():
+        for line in proc_stdout.splitlines():
             line = line.strip()
             if not line.startswith("{"):
                 continue
@@ -110,7 +144,7 @@ def run_cli(prompt: str, workdir: str, meta: Dict) -> RunResult:
             stdout = last_agent_message
 
     token_regexes = meta.get("token_regexes", {})
-    combined = stdout + "\n" + stderr + "\n" + (proc.stdout or "")
+    combined = stdout + "\n" + stderr + "\n" + proc_stdout
     if input_tokens is None:
         input_tokens = _extract_tokens(combined, token_regexes.get("input"))
     if output_tokens is None:
@@ -123,7 +157,7 @@ def run_cli(prompt: str, workdir: str, meta: Dict) -> RunResult:
     return RunResult(
         stdout=stdout,
         stderr=stderr,
-        exit_code=proc.returncode,
+        exit_code=proc_code,
         elapsed_ms=elapsed_ms,
         input_tokens=input_tokens,
         output_tokens=output_tokens,

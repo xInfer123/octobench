@@ -1,7 +1,7 @@
 # Extending
 
 ## Add a new case
-1. Create folder: `cases/<category>/<simple|complex>/<case_name>/`
+1. Create folder: `cases/<segment>/<sub_or_lang>/<case_name>/`
 2. Add `case.yaml` using `templates/case.yaml`.
 3. Add scripts (required names):
    - `setup.sh`
@@ -44,3 +44,8 @@ models:
 - Output is **not parsed**; it is fed to the judge.
 - `validate.sh` non-zero exit = hard fail.
 - Use `$CASE_DIR` inside scripts to reference case assets (e.g., `$CASE_DIR/fixtures`).
+
+Path convention:
+- `segment` is a top-level benchmark class (example: `dev`, `edit`, `refactor`).
+- `sub_or_lang` is segment-specific (for `dev`, use language like `rust`).
+- `case_name` is a stable slug for the exact scenario.

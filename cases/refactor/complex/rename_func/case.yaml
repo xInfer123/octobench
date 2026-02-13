@@ -1,9 +1,0 @@
-id: refactor_rename_func
-name: Refactor Rename Function
-category: refactor
-difficulty: complex
-system_prompt: |
-  You are a coding assistant. Keep changes minimal and consistent.
-instruction: |
-  Rename function process_data to transform_data and update all references.
-  Do not change behavior.

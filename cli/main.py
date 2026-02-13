@@ -10,6 +10,7 @@ import shutil
 import subprocess
 import sys
 import time
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List
@@ -93,23 +94,57 @@ def find_case_files(root: Path) -> List[Path]:
     return list(root.rglob("case.yaml"))
 
 
-def run_script(script_name: str, workdir: Path, env: Dict[str, str] | None = None) -> Dict:
+def run_script(
+    script_name: str,
+    workdir: Path,
+    env: Dict[str, str] | None = None,
+    verbosity: str = "normal",
+) -> Dict:
     script_path = workdir / script_name
     if not script_path.exists():
         return {"exit_code": 0, "stdout": "", "stderr": "", "elapsed_ms": 0}
+    log(f"[octobench] script={script_name} start cwd={workdir}", verbosity, "normal")
     start = time.time()
-    result = subprocess.run(
+    proc = subprocess.Popen(
         ["bash", script_name],
         cwd=str(workdir),
-        capture_output=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
         text=True,
+        bufsize=1,
         env={**os.environ, **(env or {})},
     )
+
+    stdout_lines: List[str] = []
+    stderr_lines: List[str] = []
+
+    def pump(stream, target: List[str], stream_label: str) -> None:
+        for raw in iter(stream.readline, ""):
+            target.append(raw)
+            if verbosity != "quiet":
+                line = raw.rstrip("\n")
+                if line:
+                    log(f"[octobench] script={script_name} {stream_label}: {line}", verbosity, "normal")
+        stream.close()
+
+    t_out = threading.Thread(target=pump, args=(proc.stdout, stdout_lines, "stdout"), daemon=True)
+    t_err = threading.Thread(target=pump, args=(proc.stderr, stderr_lines, "stderr"), daemon=True)
+    t_out.start()
+    t_err.start()
+    return_code = proc.wait()
+    t_out.join()
+    t_err.join()
+
     elapsed_ms = int((time.time() - start) * 1000)
+    log(
+        f"[octobench] script={script_name} end exit={return_code} elapsed_ms={elapsed_ms}",
+        verbosity,
+        "normal",
+    )
     return {
-        "exit_code": result.returncode,
-        "stdout": result.stdout or "",
-        "stderr": result.stderr or "",
+        "exit_code": return_code,
+        "stdout": "".join(stdout_lines),
+        "stderr": "".join(stderr_lines),
         "elapsed_ms": elapsed_ms,
     }
 
@@ -201,7 +236,7 @@ def default_judge_cfg(repo_root: Path) -> Dict:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(prog="octobench")
+    parser = argparse.ArgumentParser(prog="python3 -m cli.main")
     sub = parser.add_subparsers(dest="cmd", required=True)
 
     run_p = sub.add_parser("run", help="Run benchmarks")
@@ -287,10 +322,20 @@ def main() -> None:
                     "CASE_DIR": str(case_dir.resolve()),
                     "WORKDIR": str(workdir_abs),
                 }
-                setup_log = run_script("setup.sh", workdir_abs, env=env)
+                setup_log = run_script("setup.sh", workdir_abs, env=env, verbosity=verbosity)
                 if setup_log["exit_code"] != 0:
-                    quality_log = run_script("quality.sh", workdir_abs, env=env)
-                    validation_log = run_script("validate.sh", workdir_abs, env=env)
+                    quality_log = run_script("quality.sh", workdir_abs, env=env, verbosity=verbosity)
+                    validation_log = run_script("validate.sh", workdir_abs, env=env, verbosity=verbosity)
+                    setup_err = (setup_log["stderr"] or "").strip()
+                    setup_out = (setup_log["stdout"] or "").strip()
+                    detail = setup_err if setup_err else setup_out
+                    if detail:
+                        detail = detail[-1200:]
+                        setup_failed_msg = (
+                            f"setup failed (exit={setup_log['exit_code']}): {detail}"
+                        )
+                    else:
+                        setup_failed_msg = f"setup failed (exit={setup_log['exit_code']})"
                     judge_payload = {
                         "task": "",
                         "model_output": "",
@@ -312,7 +357,7 @@ def main() -> None:
                         "runner": "provider",
                         "result": {
                             "stdout": "",
-                            "stderr": "setup failed",
+                            "stderr": setup_failed_msg,
                             "exit_code": 1,
                             "elapsed_ms": 0,
                         },
@@ -346,8 +391,8 @@ def main() -> None:
                 diff = diff_snapshots(before, after)
                 evidence_log = build_evidence(before, after, diff)
 
-                quality_log = run_script("quality.sh", workdir_abs, env=env)
-                validation_log = run_script("validate.sh", workdir_abs, env=env)
+                quality_log = run_script("quality.sh", workdir_abs, env=env, verbosity=verbosity)
+                validation_log = run_script("validate.sh", workdir_abs, env=env, verbosity=verbosity)
 
                 judge_payload = {
                     "task": prompt,
@@ -430,12 +475,26 @@ def main() -> None:
                 }
             )
 
+    total_runs = len(all_results)
+    failed_runs = [
+        r
+        for r in all_results
+        if (
+            r["scripts"]["setup"]["exit_code"] != 0
+            or r["result"]["exit_code"] != 0
+            or r["scripts"]["validate"]["exit_code"] != 0
+        )
+    ]
+
     out_path = run_root / "results.json"
     with open(out_path, "w", encoding="utf-8") as f:
         json.dump({"results": all_results}, f, indent=2)
 
     log(f"[octobench] wrote results to {out_path}", verbosity, "normal")
-    print(f"Wrote {out_path}")
+    if failed_runs:
+        print(f"FAILED {len(failed_runs)}/{total_runs} run(s). Results: {out_path}")
+        sys.exit(1)
+    print(f"OK {total_runs}/{total_runs} run(s). Results: {out_path}")
 
 
 if __name__ == "__main__":

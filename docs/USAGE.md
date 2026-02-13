@@ -7,19 +7,9 @@ python3 -m cli.main run --cases cases --providers codex,octomind --verbosity nor
 
 This writes a JSON report under `results/<timestamp>/results.json`.
 
-## Install CLI (recommended)
-```bash
-python3 -m pip install -e .
-```
-
-Then run:
-```bash
-octobench run --cases cases --providers codex,octomind --verbosity normal
-```
-
 Run only selected benchmark models:
 ```bash
-octobench run --cases cases --providers codex,octomind --models gpt-5.2-codex --verbosity normal
+python3 -m cli.main run --cases cases --providers codex,octomind --models gpt-5.2-codex --verbosity normal
 ```
 
 Verbosity levels:

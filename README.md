@@ -20,7 +20,7 @@ pip install -r requirements.txt
 2. Run all cases with all providers:
 
 ```bash
-octobench run --cases cases --providers codex,octomind --verbosity normal
+python3 -m cli.main run --cases cases --providers codex,octomind --verbosity normal
 ```
 
 Results land in `results/` as JSON.
@@ -29,12 +29,18 @@ Results land in `results/` as JSON.
 Each case is a folder with a `case.yaml` plus optional scripts:
 
 ```
-cases/edit/simple/hello/
+cases/<segment>/<sub_or_lang>/<case_name>/
   case.yaml
   setup.sh
   quality.sh
   validate.sh
   fixtures/
+```
+
+Example:
+
+```
+cases/dev/rust/unexpected_closing_delimiter_fix/
 ```
 
 Script behavior:

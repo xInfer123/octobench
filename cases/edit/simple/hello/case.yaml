@@ -1,8 +1,0 @@
-id: edit_simple_hello
-name: Edit Simple Hello
-category: edit
-difficulty: simple
-system_prompt: |
-  You are a coding assistant. Make minimal changes required.
-instruction: |
-  Update the greeting message to say "Hello, Octobench!".
