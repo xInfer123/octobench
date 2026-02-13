@@ -1,8 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-cd octolib
-
 MINIMAX_FILE="src/llm/providers/minimax.rs"
 if [[ ! -f "${MINIMAX_FILE}" ]]; then
   echo "validate: expected file missing: ${MINIMAX_FILE}"

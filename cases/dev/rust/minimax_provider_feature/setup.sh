@@ -2,13 +2,10 @@
 set -euo pipefail
 
 REPO_URL="https://github.com/Muvon/octolib"
-REPO_DIR="octolib"
 COMMIT_SHA="b46e3c7d83929ec0841aeb213991b594a5cbc098"
 
-rm -rf "${REPO_DIR}"
-echo "[setup] cloning ${REPO_URL} -> ${REPO_DIR}"
-git clone "${REPO_URL}" "${REPO_DIR}"
-cd "${REPO_DIR}"
+echo "[setup] cloning ${REPO_URL} into workspace root"
+git clone "${REPO_URL}" .
 echo "[setup] checking out ${COMMIT_SHA}"
 git checkout "${COMMIT_SHA}"
 

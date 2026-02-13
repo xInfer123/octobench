@@ -160,23 +160,29 @@ def load_yaml(path: Path) -> Dict:
         return yaml.safe_load(f)
 
 
+def write_text(path: Path, content: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(content or "", encoding="utf-8")
+
+
 def find_case_files(root: Path) -> List[Path]:
     return list(root.rglob("case.yaml"))
 
 
 def run_script(
-    script_name: str,
+    script_path: Path,
     workdir: Path,
     env: Dict[str, str] | None = None,
     verbosity: str = "normal",
 ) -> Dict:
-    script_path = workdir / script_name
+    script_path = script_path.resolve()
+    script_name = script_path.name
     if not script_path.exists():
         return {"exit_code": 0, "stdout": "", "stderr": "", "elapsed_ms": 0}
     log(f"[octobench] script={script_name} start cwd={workdir}", verbosity, "normal")
     start = time.time()
     proc = subprocess.Popen(
-        ["bash", script_name],
+        ["bash", str(script_path)],
         cwd=str(workdir),
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
@@ -224,10 +230,6 @@ def ensure_workspace(case_dir: Path, run_dir: Path) -> Path:
     if workdir.exists():
         shutil.rmtree(workdir)
     workdir.mkdir(parents=True, exist_ok=True)
-    for name in ["setup.sh", "quality.sh", "validate.sh"]:
-        src = case_dir / name
-        if src.exists():
-            shutil.copy2(src, workdir / name)
     return workdir
 
 
@@ -379,6 +381,8 @@ def main() -> None:
                 setup_name = f"{provider_name}__{safe_id(benchmark_model)}"
                 setup_run_dir = case_run_dir / setup_name
                 setup_run_dir.mkdir(parents=True, exist_ok=True)
+                logs_dir = setup_run_dir / "logs"
+                logs_dir.mkdir(parents=True, exist_ok=True)
 
                 log(
                     f"[octobench] run provider={provider_name} benchmark_model={benchmark_model} provider_model={provider_model}",
@@ -393,10 +397,16 @@ def main() -> None:
                     "CASE_DIR": str(case_dir.resolve()),
                     "WORKDIR": str(workdir_abs),
                 }
-                setup_log = run_script("setup.sh", workdir_abs, env=env, verbosity=verbosity)
+                setup_log = run_script(case_dir / "setup.sh", workdir_abs, env=env, verbosity=verbosity)
                 if setup_log["exit_code"] != 0:
-                    quality_log = run_script("quality.sh", workdir_abs, env=env, verbosity=verbosity)
-                    validation_log = run_script("validate.sh", workdir_abs, env=env, verbosity=verbosity)
+                    quality_log = run_script(case_dir / "quality.sh", workdir_abs, env=env, verbosity=verbosity)
+                    validation_log = run_script(case_dir / "validate.sh", workdir_abs, env=env, verbosity=verbosity)
+                    write_text(logs_dir / "setup.stdout.log", setup_log["stdout"])
+                    write_text(logs_dir / "setup.stderr.log", setup_log["stderr"])
+                    write_text(logs_dir / "quality.stdout.log", quality_log["stdout"])
+                    write_text(logs_dir / "quality.stderr.log", quality_log["stderr"])
+                    write_text(logs_dir / "validate.stdout.log", validation_log["stdout"])
+                    write_text(logs_dir / "validate.stderr.log", validation_log["stderr"])
                     setup_err = (setup_log["stderr"] or "").strip()
                     setup_out = (setup_log["stdout"] or "").strip()
                     detail = setup_err if setup_err else setup_out
@@ -416,9 +426,10 @@ def main() -> None:
                         "evidence_log": "",
                     }
                     judge_meta = dict(judge_cfg)
-                    judge_meta["io_dir"] = str(setup_run_dir.resolve())
+                    judge_meta["io_dir"] = str(logs_dir.resolve())
                     judge_meta["repo_root"] = str(repo_root)
                     judge_out = run_judge(judge_payload, judge_meta, str(workdir_abs))
+                    write_text(logs_dir / "judge.raw.log", str(judge_out.get("_judge_raw", "")))
                     record = {
                         "case_id": case_id,
                         "setup": setup_name,
@@ -475,8 +486,16 @@ def main() -> None:
                 provider_evidence = provider_impl.build_provider_evidence(provider_result)
                 evidence_log = provider_evidence if provider_evidence else evidence_log_diff
 
-                quality_log = run_script("quality.sh", workdir_abs, env=env, verbosity=verbosity)
-                validation_log = run_script("validate.sh", workdir_abs, env=env, verbosity=verbosity)
+                quality_log = run_script(case_dir / "quality.sh", workdir_abs, env=env, verbosity=verbosity)
+                validation_log = run_script(case_dir / "validate.sh", workdir_abs, env=env, verbosity=verbosity)
+                write_text(logs_dir / "setup.stdout.log", setup_log["stdout"])
+                write_text(logs_dir / "setup.stderr.log", setup_log["stderr"])
+                write_text(logs_dir / "quality.stdout.log", quality_log["stdout"])
+                write_text(logs_dir / "quality.stderr.log", quality_log["stderr"])
+                write_text(logs_dir / "validate.stdout.log", validation_log["stdout"])
+                write_text(logs_dir / "validate.stderr.log", validation_log["stderr"])
+                write_text(logs_dir / "provider.stdout.log", provider_result.stdout or "")
+                write_text(logs_dir / "provider.stderr.log", provider_result.stderr or "")
 
                 judge_payload = {
                     "task": prompt,
@@ -487,9 +506,10 @@ def main() -> None:
                     "evidence_log": evidence_log,
                 }
                 judge_meta = dict(judge_cfg)
-                judge_meta["io_dir"] = str(setup_run_dir.resolve())
+                judge_meta["io_dir"] = str(logs_dir.resolve())
                 judge_meta["repo_root"] = str(repo_root)
                 judge_out = run_judge(judge_payload, judge_meta, str(workdir_abs))
+                write_text(logs_dir / "judge.raw.log", str(judge_out.get("_judge_raw", "")))
 
                 pricing = models_cfg.get("models", {}).get(benchmark_model, {}).get("pricing")
                 if not pricing:

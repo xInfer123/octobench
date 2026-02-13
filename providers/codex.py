@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import os
-from pathlib import Path
 import subprocess
 import time
 from typing import Any, Optional
@@ -13,20 +12,6 @@ from providers.base import Provider, ProviderRunResult
 class CodexProvider(Provider):
     name = "codex"
 
-    def _resolve_task_dir(self, workdir: str) -> str:
-        root = Path(workdir)
-        if (root / ".git").exists():
-            return str(root)
-
-        git_children = []
-        for child in root.iterdir():
-            if child.is_dir() and (child / ".git").exists():
-                git_children.append(child)
-
-        if len(git_children) == 1:
-            return str(git_children[0])
-        return str(root)
-
     def run_task(
         self,
         prompt: str,
@@ -34,7 +19,6 @@ class CodexProvider(Provider):
         provider_model: str,
         session_name: str,
     ) -> ProviderRunResult:
-        task_dir = self._resolve_task_dir(workdir)
         output_file = os.path.join(workdir, f"_provider_output_{session_name}.txt")
         cmd = [
             "codex",
@@ -43,7 +27,7 @@ class CodexProvider(Provider):
             "-m",
             provider_model,
             "-C",
-            task_dir,
+            workdir,
             "-s",
             "workspace-write",
             "--skip-git-repo-check",
@@ -55,7 +39,7 @@ class CodexProvider(Provider):
         start = time.time()
         proc = subprocess.run(
             cmd,
-            cwd=task_dir,
+            cwd=workdir,
             capture_output=True,
             text=True,
             input=prompt,
