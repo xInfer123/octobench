@@ -226,8 +226,8 @@ def default_judge_cfg(repo_root: Path) -> Dict:
         "name": "octomind_judge",
         "runner": "cli",
         "model": "openrouter:anthropic/claude-sonnet-4",
-        "stdin_prompt": False,
-        "command": ["octomind", "run", "--role", "judge", "{prompt}"],
+        "stdin_prompt": True,
+        "command": ["octomind", "run", "--role", "judge"],
         "env": {
             "OCTOMIND_CONFIG_PATH": f"{repo_root}/configs/octomind/octomind.toml",
         },
