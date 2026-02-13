@@ -5,17 +5,30 @@
 python3 -m cli.main run --cases cases --providers codex,octomind --verbosity normal
 ```
 
-This writes a JSON report under `results/<timestamp>/results.json`.
+This writes a JSON report under `results/<timestamp>.json`.
 
-Run only selected benchmark models:
+## CLI arguments
 ```bash
-python3 -m cli.main run --cases cases --providers codex,octomind --models gpt-5.2-codex --verbosity normal
+python3 -m cli.main run \
+  --cases cases \
+  --providers codex,octomind \
+  --models gpt-5.2-codex \
+  --out results \
+  --scoring configs/scoring.yaml \
+  --efficiency configs/efficiency.yaml \
+  --verbosity normal
 ```
 
-Verbosity levels:
-- `--verbosity quiet`
-- `--verbosity normal`
-- `--verbosity debug`
+Required:
+- `--cases`: Path to cases directory (e.g., `cases`)
+- `--providers`: Comma-separated provider names (default: `codex,octomind`)
+
+Optional:
+- `--models`: Comma-separated benchmark model keys (default: all from models.yaml)
+- `--out`: Output directory base name (default: `results`)
+- `--scoring`: Path to scoring config (default: `configs/scoring.yaml`)
+- `--efficiency`: Path to efficiency config (default: `configs/efficiency.yaml`)
+- `--verbosity`: quiet, normal, or debug
 
 ## What happens in a run
 For each case, provider, and benchmark model:
@@ -30,7 +43,7 @@ For each case, provider, and benchmark model:
 9. Computes scores and writes JSON.
 
 ## Octomind integration
-- Provider implementation: `providers/octomind.py` (role: `developer`)
+- Provider implementation: `providers/octomind.py` (role: `benchmark`)
 - Judge is hardcoded to Octomind role `judge`
 - Octomind config path is passed via env:
   - `OCTOMIND_CONFIG_PATH={repo_root}/configs/octomind/octomind.toml`

@@ -2,7 +2,7 @@
 
 ## Concepts
 - **Case**: A task definition with prompts, inputs, fixtures, and scripts.
-- **Provider**: A Python implementation that executes a CLI tool and returns normalized telemetry.
+- **Provider**: A Python implementation that executes a CLI tool and returns normalized telemetry (tokens, cost, latency, output, provider_trace).
 - **Runner/Orchestrator**: Coordinates case execution, evidence capture, judging, and scoring.
 - **Judge**: LLM evaluator with a fixed JSON schema.
 - **Report**: JSON aggregation of all runs.
