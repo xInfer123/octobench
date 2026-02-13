@@ -65,6 +65,7 @@ Model registry:
 1. Add provider implementation in `providers/<name>.py` implementing `Provider`.
 2. Register it in `providers/factory.py`.
 3. Add provider mapping under each benchmark model in `configs/models.yaml`.
+4. Follow `docs/PROVIDER_INTERFACE.md` for token semantics and evidence consistency.
 
 ## Add new benchmark model
 1. Add a new key under `configs/models.yaml`.

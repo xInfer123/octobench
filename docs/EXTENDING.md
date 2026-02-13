@@ -14,7 +14,9 @@
 2. Return normalized fields in `ProviderRunResult`:
    - output text, exit code, elapsed_ms
    - input/cached/output/total tokens
-3. Register provider in `providers/factory.py`.
+3. Implement compact provider evidence via `build_provider_evidence(...)` when possible.
+4. Follow the full provider contract in `docs/PROVIDER_INTERFACE.md`.
+5. Register provider in `providers/factory.py`.
 
 Octomind-specific:
 - Provider implementation uses role `benchmark`.

@@ -120,7 +120,8 @@ def run_cli(prompt: str, workdir: str, meta: Dict) -> RunResult:
     cached_input_tokens = None
     last_agent_message = None
 
-    # If tool emits JSONL events, parse usage from stdout
+    # If tool emits JSONL events, parse usage and assistant output.
+    # Supports Codex event schema and Octomind JSONL schema.
     if meta.get("json_events"):
         for line in proc_stdout.splitlines():
             line = line.strip()
@@ -137,9 +138,34 @@ def run_cli(prompt: str, workdir: str, meta: Dict) -> RunResult:
                 output_tokens = usage.get("output_tokens", output_tokens)
                 if input_tokens is not None and output_tokens is not None:
                     total_tokens = input_tokens + output_tokens
+
+            # Octomind JSONL cost message metadata.
+            if obj.get("type") == "cost" and isinstance(obj.get("meta"), dict):
+                meta_cost = obj.get("meta", {})
+                raw_in = meta_cost.get("input_tokens")
+                raw_out = meta_cost.get("output_tokens")
+                raw_cached = meta_cost.get("cached_tokens")
+                raw_total = meta_cost.get("session_tokens")
+                try:
+                    if raw_in is not None:
+                        input_tokens = int(raw_in)
+                    if raw_out is not None:
+                        output_tokens = int(raw_out)
+                    if raw_cached is not None:
+                        cached_input_tokens = int(raw_cached)
+                    if raw_total is not None:
+                        total_tokens = int(raw_total)
+                except Exception:
+                    pass
+
             item = obj.get("item")
             if isinstance(item, dict) and item.get("type") == "agent_message":
                 last_agent_message = item.get("text", last_agent_message)
+            # Octomind JSONL assistant message.
+            if obj.get("type") == "assistant":
+                content = obj.get("content")
+                if isinstance(content, str) and content.strip():
+                    last_agent_message = content
         if last_agent_message:
             stdout = last_agent_message
 

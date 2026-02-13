@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+import json
 import os
 import re
 import subprocess
 import time
-from typing import Optional
+from typing import Any, Optional
 
 from providers.base import Provider, ProviderRunResult
 
@@ -35,34 +36,107 @@ def _parse_compact_tokens(value: str) -> Optional[int]:
         return None
 
 
-def _extract_message(stdout: str) -> str:
-    text = _clean(stdout)
-    lines = [ln.rstrip() for ln in text.splitlines()]
-    filtered = []
-    for ln in lines:
-        s = ln.strip()
-        if not s:
+def _compact_text(value: Any, limit: int = 220) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, (dict, list)):
+        text = json.dumps(value, ensure_ascii=True)
+    else:
+        text = str(value)
+    text = " ".join(text.split())
+    if len(text) > limit:
+        return text[: limit - 3] + "..."
+    return text
+
+
+def _iter_jsonl_records(text: str) -> list[dict[str, Any]]:
+    records: list[dict[str, Any]] = []
+    for raw in (text or "").splitlines():
+        line = raw.strip()
+        if not line or not line.startswith("{"):
             continue
-        if s.startswith("Starting new session:"):
+        try:
+            obj = json.loads(line)
+        except Exception:
+            # Ignore non-JSONL/noisy lines by design.
             continue
-        if s.startswith("✓ Resuming session:"):
-            continue
-        if s.startswith("Created:"):
-            continue
-        if s.startswith("Model:"):
-            continue
-        if s.startswith("Messages:"):
-            continue
-        if s.startswith("Tokens:"):
-            continue
-        if s.startswith("Cost:"):
-            continue
-        if s.startswith("Tip:") or s.startswith("?") or s.startswith("💡"):
-            continue
-        if s.startswith("──") or s.startswith("────────"):
-            continue
-        filtered.append(ln)
-    return "\n".join(filtered).strip()
+        if isinstance(obj, dict):
+            records.append(obj)
+    return records
+
+
+def _extract_from_jsonl(records: list[dict[str, Any]]) -> tuple[str, list[str], list[str], list[str], Optional[int], Optional[int], Optional[int], Optional[int]]:
+    assistant_messages: list[str] = []
+    tool_intents: list[str] = []
+    tool_results: list[str] = []
+
+    input_tokens: Optional[int] = None
+    cached_tokens: Optional[int] = None
+    output_tokens: Optional[int] = None
+    total_tokens: Optional[int] = None
+
+    for obj in records:
+        typ = str(obj.get("type", "")).strip().lower()
+        if typ == "assistant":
+            content = obj.get("content")
+            msg = _compact_text(content, limit=360)
+            if msg:
+                assistant_messages.append(msg)
+        elif typ in ("tool_call", "tool_intent", "tool_use"):
+            meta = obj.get("meta") if isinstance(obj.get("meta"), dict) else {}
+            tool_name = meta.get("tool") or obj.get("tool") or obj.get("name") or typ
+            args = meta.get("args") or obj.get("input") or obj.get("arguments")
+            if args is not None:
+                tool_intents.append(f"{_compact_text(tool_name, 80)}: {_compact_text(args, 180)}")
+            else:
+                tool_intents.append(_compact_text(tool_name, 120))
+        elif typ == "tool_result":
+            meta = obj.get("meta") if isinstance(obj.get("meta"), dict) else {}
+            tool_name = meta.get("tool") or obj.get("tool") or "unknown"
+            server = meta.get("server")
+            success = meta.get("success")
+            duration_ms = meta.get("duration_ms")
+            parts = [f"tool={_compact_text(tool_name, 80)}"]
+            if server is not None:
+                parts.append(f"server={_compact_text(server, 80)}")
+            if success is not None:
+                parts.append(f"success={success}")
+            if duration_ms is not None:
+                parts.append(f"duration_ms={duration_ms}")
+            tool_results.append(", ".join(parts))
+        elif typ == "cost":
+            meta = obj.get("meta") if isinstance(obj.get("meta"), dict) else {}
+            raw_in = meta.get("input_tokens")
+            raw_out = meta.get("output_tokens")
+            raw_cached = meta.get("cached_tokens")
+            raw_total = meta.get("session_tokens")
+            try:
+                if raw_in is not None:
+                    input_tokens = int(raw_in)
+                if raw_out is not None:
+                    output_tokens = int(raw_out)
+                if raw_cached is not None:
+                    cached_tokens = int(raw_cached)
+                if raw_total is not None:
+                    total_tokens = int(raw_total)
+            except Exception:
+                pass
+
+    # Canonical total tokens should include cached when known.
+    if input_tokens is not None and output_tokens is not None:
+        total_tokens = input_tokens + output_tokens + (cached_tokens or 0)
+
+    final_text = assistant_messages[-1] if assistant_messages else ""
+    return (
+        final_text,
+        assistant_messages[-12:],
+        tool_intents[-24:],
+        tool_results[-24:],
+        input_tokens,
+        cached_tokens,
+        output_tokens,
+        total_tokens,
+    )
 
 
 def _parse_info(stdout: str) -> tuple[Optional[int], Optional[int], Optional[int], Optional[int], Optional[int]]:
@@ -145,6 +219,8 @@ class OctomindProvider(Provider):
             "developer",
             "--model",
             provider_model,
+            "--mode",
+            "jsonl",
             prompt,
         ]
 
@@ -158,34 +234,65 @@ class OctomindProvider(Provider):
         )
         elapsed_ms = int((time.time() - start) * 1000)
 
-        # Query info from same session for usage/cost metrics.
-        info_cmd = [
-            "octomind",
-            "run",
-            "--resume",
-            session_name,
-            "/info",
-        ]
-        info = subprocess.run(
-            info_cmd,
-            cwd=workdir,
-            capture_output=True,
-            text=True,
-            env=env,
-        )
+        combined = (main.stdout or "") + "\n" + (main.stderr or "")
+        records = _iter_jsonl_records(combined)
+        (
+            final_text,
+            assistant_messages,
+            tool_intents,
+            tool_results,
+            input_tokens,
+            cached_input_tokens,
+            output_tokens,
+            total_tokens,
+        ) = _extract_from_jsonl(records)
 
-        input_tokens, cached_input_tokens, output_tokens, reasoning_tokens, total_tokens = _parse_info(
-            (info.stdout or "") + "\n" + (info.stderr or "")
-        )
+        if not final_text:
+            # Fallback to legacy text extraction for non-jsonl output variants.
+            final_text = _clean(main.stdout or "").strip()
 
         return ProviderRunResult(
-            stdout=_extract_message(main.stdout or ""),
+            stdout=final_text,
             stderr=(main.stderr or "").strip(),
             exit_code=main.returncode,
             elapsed_ms=elapsed_ms,
             input_tokens=input_tokens,
             cached_input_tokens=cached_input_tokens,
             output_tokens=output_tokens,
-            reasoning_tokens=reasoning_tokens,
+            reasoning_tokens=None,
             total_tokens=total_tokens,
+            provider_trace={
+                "assistant_messages": assistant_messages,
+                "tool_intents": tool_intents,
+                "tool_results": tool_results,
+            },
         )
+
+    def build_provider_evidence(self, run_result: ProviderRunResult) -> str:
+        trace = run_result.provider_trace or {}
+        assistant_messages = trace.get("assistant_messages") or []
+        tool_intents = trace.get("tool_intents") or []
+        tool_results = trace.get("tool_results") or []
+
+        lines: list[str] = []
+        lines.append("PROVIDER_EVIDENCE")
+        lines.append("provider: octomind")
+        lines.append("assistant_messages:")
+        if assistant_messages:
+            for msg in assistant_messages:
+                lines.append(f"- {msg}")
+        else:
+            lines.append("- <none>")
+        lines.append("tool_intents:")
+        if tool_intents:
+            for intent in tool_intents:
+                lines.append(f"- {intent}")
+        else:
+            lines.append("- <none>")
+        lines.append("tool_results:")
+        if tool_results:
+            for result in tool_results:
+                lines.append(f"- {result}")
+        else:
+            lines.append("- <none>")
+        return "\n".join(lines)

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Optional
+from typing import Any, Optional
 
 
 @dataclass
@@ -16,6 +16,7 @@ class ProviderRunResult:
     output_tokens: Optional[int] = None
     reasoning_tokens: Optional[int] = None
     total_tokens: Optional[int] = None
+    provider_trace: Optional[dict[str, Any]] = None
 
 
 class Provider(ABC):
@@ -30,3 +31,10 @@ class Provider(ABC):
         session_name: str,
     ) -> ProviderRunResult:
         raise NotImplementedError
+
+    def build_provider_evidence(self, run_result: ProviderRunResult) -> str:
+        """
+        Provider-specific compact evidence for judge context.
+        Override in provider implementations when richer trace is available.
+        """
+        return ""

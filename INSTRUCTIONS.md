@@ -6,6 +6,7 @@ This file is the entrypoint for contributors and agents.
 - Read `docs/USAGE.md` for how to run benchmarks.
 - Read `docs/ARCHITECTURE.md` for core concepts and flow.
 - Read `docs/EXTENDING.md` to add new cases or tools.
+- Read `docs/PROVIDER_INTERFACE.md` before implementing/changing providers.
 
 ## Repo Layout
 - `cases/`: benchmark cases in `cases/<segment>/<sub_or_lang>/<case_name>/` with scripts + fixtures

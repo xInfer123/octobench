@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import difflib
+import fnmatch
 import hashlib
 import json
 import os
@@ -22,12 +23,81 @@ from providers.factory import available_providers, get_provider
 from scoring.aggregate import compute_cost, compute_efficiency_score, compute_final_score
 
 
+def _load_gitignore_rules(workdir: Path) -> list[tuple[Path, str, bool, bool]]:
+    """
+    Return parsed gitignore rules as tuples:
+    (base_dir, pattern, negated, dir_only)
+    """
+    rules: list[tuple[Path, str, bool, bool]] = []
+    for gitignore in workdir.rglob(".gitignore"):
+        base_dir = gitignore.parent
+        try:
+            lines = gitignore.read_text(encoding="utf-8").splitlines()
+        except Exception:
+            continue
+        for raw in lines:
+            line = raw.strip()
+            if not line or line.startswith("#"):
+                continue
+            negated = line.startswith("!")
+            pattern = line[1:] if negated else line
+            pattern = pattern.strip()
+            if not pattern:
+                continue
+            dir_only = pattern.endswith("/")
+            if dir_only:
+                pattern = pattern[:-1]
+            rules.append((base_dir, pattern, negated, dir_only))
+    return rules
+
+
+def _match_gitignore_pattern(rel_from_base: str, name: str, pattern: str, dir_only: bool) -> bool:
+    rel = rel_from_base.replace("\\", "/")
+    pat = pattern.replace("\\", "/")
+    if pat.startswith("/"):
+        anchored = pat.lstrip("/")
+        if rel == anchored or rel.startswith(anchored + "/"):
+            return True
+        return False
+
+    # No slash: match any path segment name.
+    if "/" not in pat:
+        if fnmatch.fnmatchcase(name, pat):
+            return True
+        parts = rel.split("/")
+        return any(fnmatch.fnmatchcase(p, pat) for p in parts)
+
+    # Path pattern relative to the .gitignore base directory.
+    if fnmatch.fnmatchcase(rel, pat):
+        return True
+    # Directory rule should match descendants too.
+    if dir_only and (rel == pat or rel.startswith(pat + "/")):
+        return True
+    return False
+
+
+def _is_gitignored(path: Path, workdir: Path, rules: list[tuple[Path, str, bool, bool]]) -> bool:
+    ignored = False
+    name = path.name
+    for base_dir, pattern, negated, dir_only in rules:
+        try:
+            rel_from_base = str(path.relative_to(base_dir))
+        except Exception:
+            continue
+        if _match_gitignore_pattern(rel_from_base, name, pattern, dir_only):
+            ignored = not negated
+    return ignored
+
+
 def snapshot_files(workdir: Path) -> Dict[str, Dict]:
     files = {}
+    rules = _load_gitignore_rules(workdir)
     for path in workdir.rglob("*"):
         if path.is_file():
             rel = str(path.relative_to(workdir))
             if rel.startswith("_provider_output_") or rel.startswith("_prompt_") or rel.startswith("_output_"):
+                continue
+            if _is_gitignored(path, workdir, rules):
                 continue
             try:
                 data = path.read_bytes()
@@ -227,7 +297,8 @@ def default_judge_cfg(repo_root: Path) -> Dict:
         "runner": "cli",
         "model": "openrouter:anthropic/claude-sonnet-4",
         "stdin_prompt": True,
-        "command": ["octomind", "run", "--role", "judge"],
+        "command": ["octomind", "run", "--role", "judge", "--mode", "jsonl"],
+        "json_events": True,
         "env": {
             "OCTOMIND_CONFIG_PATH": f"{repo_root}/configs/octomind/octomind.toml",
         },
@@ -369,6 +440,8 @@ def main() -> None:
                             "validate": validation_log,
                         },
                         "evidence": "",
+                        "evidence_diff": "",
+                        "provider_evidence": "",
                         "workdir": str(workdir_abs),
                         "judge": judge_out,
                         "scoring": {},
@@ -386,10 +459,21 @@ def main() -> None:
                     provider_model=provider_model,
                     session_name=session_name,
                 )
+                if provider_result.exit_code != 0:
+                    err_tail = ((provider_result.stderr or "").strip() or (provider_result.stdout or "").strip())
+                    if err_tail:
+                        err_tail = err_tail[-1200:]
+                    raise RuntimeError(
+                        f"Provider failed: case={case_id} provider={provider_name} model={benchmark_model} "
+                        f"exit={provider_result.exit_code}"
+                        + (f" details={err_tail}" if err_tail else "")
+                    )
 
                 after = snapshot_files(workdir_abs)
                 diff = diff_snapshots(before, after)
-                evidence_log = build_evidence(before, after, diff)
+                evidence_log_diff = build_evidence(before, after, diff)
+                provider_evidence = provider_impl.build_provider_evidence(provider_result)
+                evidence_log = provider_evidence if provider_evidence else evidence_log_diff
 
                 quality_log = run_script("quality.sh", workdir_abs, env=env, verbosity=verbosity)
                 validation_log = run_script("validate.sh", workdir_abs, env=env, verbosity=verbosity)
@@ -445,6 +529,8 @@ def main() -> None:
                         "validate": validation_log,
                     },
                     "evidence": evidence_log,
+                    "evidence_diff": evidence_log_diff,
+                    "provider_evidence": provider_evidence,
                     "workdir": str(workdir_abs),
                     "judge": judge_out,
                     "scoring": {},

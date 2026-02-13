@@ -15,11 +15,16 @@ git checkout "${COMMIT_SHA}"
 echo "[setup] running octocode index (this can take time)"
 octocode index
 
-echo "[setup] locating minimax.rs"
-MINIMAX_FILE="$(rg --files | rg 'minimax\.rs$' | head -n 1)"
-if [[ -z "${MINIMAX_FILE}" ]]; then
-  echo "minimax.rs not found"
-  exit 1
+echo "[setup] locating minimax provider file"
+if [[ -f "src/llm/providers/minimax.rs" ]]; then
+  MINIMAX_FILE="src/llm/providers/minimax.rs"
+else
+  MATCH_COUNT="$(rg --files | rg '/minimax\.rs$' | wc -l | tr -d ' ')"
+  if [[ "${MATCH_COUNT}" != "1" ]]; then
+    echo "expected exactly one minimax.rs fallback match, found ${MATCH_COUNT}"
+    exit 1
+  fi
+  MINIMAX_FILE="$(rg --files | rg '/minimax\.rs$' | head -n 1)"
 fi
 
 # Corrupt delimiters in a less-trivial way:
