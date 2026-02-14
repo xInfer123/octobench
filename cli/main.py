@@ -14,7 +14,7 @@ import threading
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, List
+from typing import Any, Dict, List
 
 import yaml
 
@@ -260,6 +260,70 @@ def parse_selected_models(models_cfg: Dict, models_arg: str | None) -> List[str]
     return selected
 
 
+def parse_run_matrix_config(config_path: Path, models_cfg: Dict) -> List[Dict[str, str]]:
+    data = load_yaml(config_path)
+    runs: Any
+    if isinstance(data, list):
+        runs = data
+    elif isinstance(data, dict):
+        runs = data.get("runs")
+    else:
+        runs = None
+
+    if not isinstance(runs, list) or not runs:
+        raise RuntimeError(
+            f"Invalid run matrix config at {config_path}: expected non-empty list in 'runs'"
+        )
+
+    known_providers = set(available_providers())
+    known_models = set(models_cfg.get("models", {}).keys())
+    run_targets: List[Dict[str, str]] = []
+
+    for i, raw in enumerate(runs, start=1):
+        if not isinstance(raw, dict):
+            raise RuntimeError(
+                f"Invalid run matrix entry #{i} in {config_path}: expected mapping/object"
+            )
+
+        provider = raw.get("provider")
+        benchmark_model = raw.get("benchmark_model") or raw.get("model")
+        provider_model = raw.get("provider_model")
+
+        if not provider:
+            raise RuntimeError(f"Invalid run matrix entry #{i}: missing required key 'provider'")
+        provider = str(provider)
+        if provider not in known_providers:
+            raise RuntimeError(
+                f"Invalid run matrix entry #{i}: unknown provider '{provider}'"
+            )
+
+        if not benchmark_model:
+            raise RuntimeError(
+                f"Invalid run matrix entry #{i}: missing required key 'model' "
+                "(or 'benchmark_model')"
+            )
+        benchmark_model = str(benchmark_model)
+        if benchmark_model not in known_models:
+            raise RuntimeError(
+                f"Invalid run matrix entry #{i}: unknown benchmark model '{benchmark_model}'"
+            )
+
+        if provider_model is None:
+            provider_model = resolve_provider_model(models_cfg, benchmark_model, provider)
+        else:
+            provider_model = str(provider_model)
+
+        run_targets.append(
+            {
+                "provider": provider,
+                "benchmark_model": benchmark_model,
+                "provider_model": provider_model,
+            }
+        )
+
+    return run_targets
+
+
 def resolve_provider_model(models_cfg: Dict, benchmark_model: str, provider: str) -> str:
     entry = models_cfg.get("models", {}).get(benchmark_model, {})
     providers = entry.get("providers", {})
@@ -328,8 +392,16 @@ def main() -> None:
 
     run_p = sub.add_parser("run", help="Run benchmarks")
     run_p.add_argument("--cases", required=True)
-    run_p.add_argument("--providers", default="codex,octomind", help="Comma-separated providers")
+    run_p.add_argument("--providers", default=None, help="Comma-separated providers")
     run_p.add_argument("--models", default=None, help="Comma-separated benchmark model keys")
+    run_p.add_argument(
+        "--config",
+        default="configs/run-matrix.yaml",
+        help=(
+            "Path to run matrix config (explicit provider/model pairs). "
+            "Used by default when --providers/--models are not set."
+        ),
+    )
     run_p.add_argument("--out", default="results")
     run_p.add_argument("--scoring", default="configs/scoring.yaml")
     run_p.add_argument("--efficiency", default="configs/efficiency.yaml")
@@ -348,8 +420,44 @@ def main() -> None:
     if not models_path.exists():
         raise RuntimeError(f"Missing required models config: {models_path}")
     models_cfg = load_yaml(models_path)
-    selected_models = parse_selected_models(models_cfg, args.models)
-    selected_providers = parse_providers(args.providers)
+    use_run_matrix = False
+    run_matrix_path = Path(args.config) if args.config else Path("configs/run-matrix.yaml")
+    if args.providers is not None or args.models is not None:
+        selected_models = parse_selected_models(models_cfg, args.models)
+        selected_providers = parse_providers(args.providers)
+        run_targets = []
+        for provider_name in selected_providers:
+            for benchmark_model in selected_models:
+                run_targets.append(
+                    {
+                        "provider": provider_name,
+                        "benchmark_model": benchmark_model,
+                        "provider_model": resolve_provider_model(
+                            models_cfg, benchmark_model, provider_name
+                        ),
+                    }
+                )
+    elif run_matrix_path.exists():
+        use_run_matrix = True
+        run_targets = parse_run_matrix_config(run_matrix_path, models_cfg)
+    else:
+        # Fallback behavior when no run-matrix config exists.
+        selected_models = parse_selected_models(models_cfg, args.models)
+        selected_providers = parse_providers(args.providers)
+        run_targets = []
+        for provider_name in selected_providers:
+            for benchmark_model in selected_models:
+                run_targets.append(
+                    {
+                        "provider": provider_name,
+                        "benchmark_model": benchmark_model,
+                        "provider_model": resolve_provider_model(
+                            models_cfg, benchmark_model, provider_name
+                        ),
+                    }
+                )
+
+    selected_providers = sorted({t["provider"] for t in run_targets})
 
     scoring_cfg = (
         load_yaml(Path(args.scoring))
@@ -382,14 +490,24 @@ def main() -> None:
 
     provider_impls = {name: get_provider(name, repo_root) for name in selected_providers}
 
-    log(
-        (
-            f"[octobench] loaded {len(selected_models)} model(s), "
-            f"{len(selected_providers)} provider(s), cases from {cases_root}"
-        ),
-        verbosity,
-        "normal",
-    )
+    if use_run_matrix:
+        log(
+            (
+                f"[octobench] loaded {len(run_targets)} run target(s) from "
+                f"{run_matrix_path}, cases from {cases_root}"
+            ),
+            verbosity,
+            "normal",
+        )
+    else:
+        log(
+            (
+                f"[octobench] loaded {len(selected_models)} model(s), "
+                f"{len(selected_providers)} provider(s), cases from {cases_root}"
+            ),
+            verbosity,
+            "normal",
+        )
 
     for case_file in case_files:
         case = load_yaml(case_file)
@@ -399,148 +517,42 @@ def main() -> None:
         case_run_dir.mkdir(parents=True, exist_ok=True)
         log(f"[octobench] case={case_id}", verbosity, "normal")
 
-        for provider_name in selected_providers:
+        used_setup_names: dict[str, int] = {}
+        for target in run_targets:
+            provider_name = target["provider"]
+            benchmark_model = target["benchmark_model"]
+            provider_model = target["provider_model"]
             provider_impl = provider_impls[provider_name]
-            for benchmark_model in selected_models:
-                provider_model = resolve_provider_model(models_cfg, benchmark_model, provider_name)
-                setup_name = f"{provider_name}__{safe_id(benchmark_model)}"
-                setup_run_dir = case_run_dir / setup_name
-                setup_run_dir.mkdir(parents=True, exist_ok=True)
-                logs_dir = setup_run_dir / "logs"
-                logs_dir.mkdir(parents=True, exist_ok=True)
 
-                log(
-                    (
-                        f"[octobench] run provider={provider_name} "
-                        f"benchmark_model={benchmark_model} "
-                        f"provider_model={provider_model}"
-                    ),
-                    verbosity,
-                    "debug",
-                )
+            setup_key = benchmark_model
+            setup_base = f"{provider_name}__{safe_id(setup_key)}"
+            setup_index = used_setup_names.get(setup_base, 0)
+            used_setup_names[setup_base] = setup_index + 1
+            setup_name = setup_base if setup_index == 0 else f"{setup_base}__{setup_index+1}"
+            setup_run_dir = case_run_dir / setup_name
+            setup_run_dir.mkdir(parents=True, exist_ok=True)
+            logs_dir = setup_run_dir / "logs"
+            logs_dir.mkdir(parents=True, exist_ok=True)
 
-                workdir = ensure_workspace(case_dir, setup_run_dir)
-                workdir_abs = workdir.resolve()
+            log(
+                (
+                    f"[octobench] run provider={provider_name} "
+                    f"benchmark_model={benchmark_model} "
+                    f"provider_model={provider_model}"
+                ),
+                verbosity,
+                "debug",
+            )
 
-                env = {
-                    "CASE_DIR": str(case_dir.resolve()),
-                    "WORKDIR": str(workdir_abs),
-                }
-                setup_log = run_script(
-                    case_dir / "setup.sh", workdir_abs, env=env, verbosity=verbosity
-                )
-                if setup_log["exit_code"] != 0:
-                    quality_log = run_script(
-                        case_dir / "quality.sh", workdir_abs, env=env, verbosity=verbosity
-                    )
-                    validation_log = run_script(
-                        case_dir / "validate.sh", workdir_abs, env=env, verbosity=verbosity
-                    )
-                    write_text(logs_dir / "setup.stdout.log", setup_log["stdout"])
-                    write_text(logs_dir / "setup.stderr.log", setup_log["stderr"])
-                    write_text(logs_dir / "quality.stdout.log", quality_log["stdout"])
-                    write_text(logs_dir / "quality.stderr.log", quality_log["stderr"])
-                    write_text(logs_dir / "validate.stdout.log", validation_log["stdout"])
-                    write_text(logs_dir / "validate.stderr.log", validation_log["stderr"])
-                    setup_err = (setup_log["stderr"] or "").strip()
-                    setup_out = (setup_log["stdout"] or "").strip()
-                    detail = setup_err if setup_err else setup_out
-                    if detail:
-                        detail = detail[-1200:]
-                        setup_failed_msg = f"setup failed (exit={setup_log['exit_code']}): {detail}"
-                    else:
-                        setup_failed_msg = f"setup failed (exit={setup_log['exit_code']})"
-                    judge_payload = {
-                        "task": "",
-                        "prep_log": setup_log["stdout"] + setup_log["stderr"],
-                        "quality_log": quality_log["stdout"] + quality_log["stderr"],
-                        "validation_log": validation_log["stdout"] + validation_log["stderr"],
-                        "evidence_log": "",
-                    }
-                    judge_meta = dict(judge_cfg)
-                    judge_meta["io_dir"] = str(logs_dir.resolve())
-                    judge_meta["repo_root"] = str(repo_root)
-                    judge_out = run_judge(judge_payload, judge_meta, str(workdir_abs))
-                    write_text(logs_dir / "judge.raw.log", str(judge_out.get("_judge_raw", "")))
-                    record = {
-                        "case_id": case_id,
-                        "setup": setup_name,
-                        "provider": provider_name,
-                        "model": benchmark_model,
-                        "provider_model": provider_model,
-                        "runner": "provider",
-                        "result": {
-                            "stdout": "",
-                            "stderr": setup_failed_msg,
-                            "exit_code": 1,
-                            "elapsed_ms": 0,
-                        },
-                        "tokens": {
-                            "input": None,
-                            "cached_input": None,
-                            "output": None,
-                            "reasoning": None,
-                            "total": None,
-                        },
-                        "cost_usd": None,
-                        "scripts": {
-                            "setup": setup_log,
-                            "quality": quality_log,
-                            "validate": validation_log,
-                        },
-                        "evidence": "",
-                        "evidence_diff": "",
-                        "provider_evidence": "",
-                        "workdir": str(workdir_abs),
-                        "judge": judge_out,
-                        "scoring": {},
-                    }
-                    all_results.append(record)
-                    continue
+            workdir = ensure_workspace(case_dir, setup_run_dir)
+            workdir_abs = workdir.resolve()
 
-                prompt = build_task_prompt(case)
-                before = snapshot_files(workdir_abs)
-
-                session_name = (
-                    f"octobench-{case_id}-{provider_name}-"
-                    f"{safe_id(benchmark_model)}-{int(time.time() * 1000)}"
-                )
-                provider_result = provider_impl.run_task(
-                    prompt=prompt,
-                    workdir=str(workdir_abs),
-                    provider_model=provider_model,
-                    session_name=session_name,
-                )
-                if provider_result.exit_code != 0:
-                    err_tail = (provider_result.stderr or "").strip() or (
-                        provider_result.stdout or ""
-                    ).strip()
-                    if err_tail:
-                        err_tail = err_tail[-1200:]
-                    raise RuntimeError(
-                        f"Provider failed: case={case_id} provider={provider_name} "
-                        f"model={benchmark_model} "
-                        f"exit={provider_result.exit_code}"
-                        + (f" details={err_tail}" if err_tail else "")
-                    )
-
-                after = snapshot_files(workdir_abs)
-                diff = diff_snapshots(before, after)
-                evidence_log_diff = build_evidence(before, after, diff)
-                provider_evidence = provider_impl.build_provider_evidence(provider_result)
-                evidence_parts = []
-                if provider_evidence:
-                    evidence_parts.append(
-                        "<provider_evidence>\n"
-                        + provider_evidence.strip()
-                        + "\n</provider_evidence>"
-                    )
-                if evidence_log_diff:
-                    evidence_parts.append(
-                        "<evidence_diff>\n" + evidence_log_diff.strip() + "\n</evidence_diff>"
-                    )
-                evidence_log = "\n\n".join(p for p in evidence_parts if p)
-
+            env = {
+                "CASE_DIR": str(case_dir.resolve()),
+                "WORKDIR": str(workdir_abs),
+            }
+            setup_log = run_script(case_dir / "setup.sh", workdir_abs, env=env, verbosity=verbosity)
+            if setup_log["exit_code"] != 0:
                 quality_log = run_script(
                     case_dir / "quality.sh", workdir_abs, env=env, verbosity=verbosity
                 )
@@ -553,33 +565,26 @@ def main() -> None:
                 write_text(logs_dir / "quality.stderr.log", quality_log["stderr"])
                 write_text(logs_dir / "validate.stdout.log", validation_log["stdout"])
                 write_text(logs_dir / "validate.stderr.log", validation_log["stderr"])
-                write_text(logs_dir / "provider.stdout.log", provider_result.stdout or "")
-                write_text(logs_dir / "provider.stderr.log", provider_result.stderr or "")
-
+                setup_err = (setup_log["stderr"] or "").strip()
+                setup_out = (setup_log["stdout"] or "").strip()
+                detail = setup_err if setup_err else setup_out
+                if detail:
+                    detail = detail[-1200:]
+                    setup_failed_msg = f"setup failed (exit={setup_log['exit_code']}): {detail}"
+                else:
+                    setup_failed_msg = f"setup failed (exit={setup_log['exit_code']})"
                 judge_payload = {
-                    "task": prompt,
+                    "task": "",
                     "prep_log": setup_log["stdout"] + setup_log["stderr"],
                     "quality_log": quality_log["stdout"] + quality_log["stderr"],
                     "validation_log": validation_log["stdout"] + validation_log["stderr"],
-                    "evidence_log": evidence_log,
+                    "evidence_log": "",
                 }
                 judge_meta = dict(judge_cfg)
                 judge_meta["io_dir"] = str(logs_dir.resolve())
                 judge_meta["repo_root"] = str(repo_root)
                 judge_out = run_judge(judge_payload, judge_meta, str(workdir_abs))
                 write_text(logs_dir / "judge.raw.log", str(judge_out.get("_judge_raw", "")))
-
-                pricing = models_cfg.get("models", {}).get(benchmark_model, {}).get("pricing")
-                if not pricing:
-                    raise RuntimeError(f"Missing pricing for benchmark model: {benchmark_model}")
-
-                eval_cost = compute_cost(
-                    provider_result.input_tokens,
-                    provider_result.cached_input_tokens,
-                    provider_result.output_tokens,
-                    pricing,
-                )
-
                 record = {
                     "case_id": case_id,
                     "setup": setup_name,
@@ -588,40 +593,158 @@ def main() -> None:
                     "provider_model": provider_model,
                     "runner": "provider",
                     "result": {
-                        "stdout": provider_result.stdout,
-                        "stderr": provider_result.stderr,
-                        "exit_code": provider_result.exit_code,
-                        "elapsed_ms": provider_result.elapsed_ms,
+                        "stdout": "",
+                        "stderr": setup_failed_msg,
+                        "exit_code": 1,
+                        "elapsed_ms": 0,
                     },
                     "tokens": {
-                        "input": provider_result.input_tokens,
-                        "cached_input": provider_result.cached_input_tokens,
-                        "output": provider_result.output_tokens,
-                        "reasoning": provider_result.reasoning_tokens,
-                        "total": provider_result.total_tokens,
+                        "input": None,
+                        "cached_input": None,
+                        "output": None,
+                        "reasoning": None,
+                        "total": None,
                     },
-                    "cost_usd": eval_cost,
+                    "cost_usd": None,
                     "scripts": {
                         "setup": setup_log,
                         "quality": quality_log,
                         "validate": validation_log,
                     },
-                    "evidence": evidence_log,
-                    "evidence_diff": evidence_log_diff,
-                    "provider_evidence": provider_evidence,
+                    "evidence": "",
+                    "evidence_diff": "",
+                    "provider_evidence": "",
                     "workdir": str(workdir_abs),
                     "judge": judge_out,
                     "scoring": {},
                 }
                 all_results.append(record)
-                log(
-                    (
-                        f"[octobench] completed case={case_id} "
-                        f"setup={setup_name} exit={provider_result.exit_code}"
-                    ),
-                    verbosity,
-                    "normal",
+                continue
+
+            prompt = build_task_prompt(case)
+            before = snapshot_files(workdir_abs)
+
+            session_name = (
+                f"octobench-{case_id}-{provider_name}-"
+                f"{safe_id(benchmark_model)}-{int(time.time() * 1000)}"
+            )
+            provider_result = provider_impl.run_task(
+                prompt=prompt,
+                workdir=str(workdir_abs),
+                provider_model=provider_model,
+                session_name=session_name,
+            )
+            if provider_result.exit_code != 0:
+                err_tail = (provider_result.stderr or "").strip() or (
+                    provider_result.stdout or ""
+                ).strip()
+                if err_tail:
+                    err_tail = err_tail[-1200:]
+                raise RuntimeError(
+                    f"Provider failed: case={case_id} provider={provider_name} "
+                    f"model={benchmark_model} "
+                    f"exit={provider_result.exit_code}"
+                    + (f" details={err_tail}" if err_tail else "")
                 )
+
+            after = snapshot_files(workdir_abs)
+            diff = diff_snapshots(before, after)
+            evidence_log_diff = build_evidence(before, after, diff)
+            provider_evidence = provider_impl.build_provider_evidence(provider_result)
+            evidence_parts = []
+            if provider_evidence:
+                evidence_parts.append(
+                    "<provider_evidence>\n"
+                    + provider_evidence.strip()
+                    + "\n</provider_evidence>"
+                )
+            if evidence_log_diff:
+                evidence_parts.append(
+                    "<evidence_diff>\n" + evidence_log_diff.strip() + "\n</evidence_diff>"
+                )
+            evidence_log = "\n\n".join(p for p in evidence_parts if p)
+
+            quality_log = run_script(
+                case_dir / "quality.sh", workdir_abs, env=env, verbosity=verbosity
+            )
+            validation_log = run_script(
+                case_dir / "validate.sh", workdir_abs, env=env, verbosity=verbosity
+            )
+            write_text(logs_dir / "setup.stdout.log", setup_log["stdout"])
+            write_text(logs_dir / "setup.stderr.log", setup_log["stderr"])
+            write_text(logs_dir / "quality.stdout.log", quality_log["stdout"])
+            write_text(logs_dir / "quality.stderr.log", quality_log["stderr"])
+            write_text(logs_dir / "validate.stdout.log", validation_log["stdout"])
+            write_text(logs_dir / "validate.stderr.log", validation_log["stderr"])
+            write_text(logs_dir / "provider.stdout.log", provider_result.stdout or "")
+            write_text(logs_dir / "provider.stderr.log", provider_result.stderr or "")
+
+            judge_payload = {
+                "task": prompt,
+                "prep_log": setup_log["stdout"] + setup_log["stderr"],
+                "quality_log": quality_log["stdout"] + quality_log["stderr"],
+                "validation_log": validation_log["stdout"] + validation_log["stderr"],
+                "evidence_log": evidence_log,
+            }
+            judge_meta = dict(judge_cfg)
+            judge_meta["io_dir"] = str(logs_dir.resolve())
+            judge_meta["repo_root"] = str(repo_root)
+            judge_out = run_judge(judge_payload, judge_meta, str(workdir_abs))
+            write_text(logs_dir / "judge.raw.log", str(judge_out.get("_judge_raw", "")))
+
+            pricing = models_cfg.get("models", {}).get(benchmark_model, {}).get("pricing")
+            if not pricing:
+                raise RuntimeError(f"Missing pricing for benchmark model: {benchmark_model}")
+
+            eval_cost = compute_cost(
+                provider_result.input_tokens,
+                provider_result.cached_input_tokens,
+                provider_result.output_tokens,
+                pricing,
+            )
+
+            record = {
+                "case_id": case_id,
+                "setup": setup_name,
+                "provider": provider_name,
+                "model": benchmark_model,
+                "provider_model": provider_model,
+                "runner": "provider",
+                "result": {
+                    "stdout": provider_result.stdout,
+                    "stderr": provider_result.stderr,
+                    "exit_code": provider_result.exit_code,
+                    "elapsed_ms": provider_result.elapsed_ms,
+                },
+                "tokens": {
+                    "input": provider_result.input_tokens,
+                    "cached_input": provider_result.cached_input_tokens,
+                    "output": provider_result.output_tokens,
+                    "reasoning": provider_result.reasoning_tokens,
+                    "total": provider_result.total_tokens,
+                },
+                "cost_usd": eval_cost,
+                "scripts": {
+                    "setup": setup_log,
+                    "quality": quality_log,
+                    "validate": validation_log,
+                },
+                "evidence": evidence_log,
+                "evidence_diff": evidence_log_diff,
+                "provider_evidence": provider_evidence,
+                "workdir": str(workdir_abs),
+                "judge": judge_out,
+                "scoring": {},
+            }
+            all_results.append(record)
+            log(
+                (
+                    f"[octobench] completed case={case_id} "
+                    f"setup={setup_name} exit={provider_result.exit_code}"
+                ),
+                verbosity,
+                "normal",
+            )
 
     for case_id in {r["case_id"] for r in all_results}:
         case_rows = [r for r in all_results if r["case_id"] == case_id]

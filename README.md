@@ -21,13 +21,20 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-2. Run all cases with all providers:
+2. Run all cases using default run matrix (`configs/run-matrix.yaml`):
 
 ```bash
-python3 -m cli.main run --cases cases --providers codex,octomind --verbosity normal
+python3 -m cli.main run --cases cases
+```
+
+Override with another run-matrix config:
+
+```bash
+python3 -m cli.main run --cases cases --config configs/run-matrix.yaml
 ```
 
 Results land in `results/` as JSON.
+`--verbosity` is optional (default: `normal`).
 
 ## Development checks
 Install and enable pre-commit hooks:
@@ -74,7 +81,8 @@ Provider implementations live in:
 
 Model registry:
 - `configs/models.yaml` defines benchmark model keys, pricing (per-1M), and provider-specific mappings.
-- Run with all registry models by default, or filter with `--models`.
+- Default run selection comes from `configs/run-matrix.yaml`.
+- You can still filter with `--providers`/`--models` (cross-product mode).
 
 ## Add new provider
 1. Add provider implementation in `providers/<name>.py` implementing `Provider`.
@@ -102,7 +110,7 @@ Scoring is globally configurable via config files. The framework collects:
 - script logs (setup/quality/validate)
 
 Final score is computed using global scoring weights.
-Validation failures hard-fail.
+Validation failures apply a configurable penalty (`validation_fail_penalty`).
 
 ## Verbosity
 - `--verbosity quiet`: only final output line

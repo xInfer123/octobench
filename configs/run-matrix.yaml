@@ -1,0 +1,12 @@
+runs:
+  - provider: codex
+    model: gpt-5.2-codex
+
+  - provider: octomind
+    model: gpt-5.2-codex
+
+  - provider: octomind
+    model: minimax-m2.5
+
+  - provider: octomind
+    model: minimax-m2.1

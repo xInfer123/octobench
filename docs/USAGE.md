@@ -2,7 +2,7 @@
 
 ## Quick run (no install)
 ```bash
-python3 -m cli.main run --cases cases --providers codex,octomind --verbosity normal
+python3 -m cli.main run --cases cases --verbosity normal
 ```
 
 This writes a JSON report under `results/<timestamp>.json`.
@@ -11,8 +11,7 @@ This writes a JSON report under `results/<timestamp>.json`.
 ```bash
 python3 -m cli.main run \
   --cases cases \
-  --providers codex,octomind \
-  --models gpt-5.2-codex \
+  --config configs/run-matrix.yaml \
   --out results \
   --scoring configs/scoring.yaml \
   --efficiency configs/efficiency.yaml \
@@ -21,17 +20,32 @@ python3 -m cli.main run \
 
 Required:
 - `--cases`: Path to cases directory (e.g., `cases`)
-- `--providers`: Comma-separated provider names (default: `codex,octomind`)
 
 Optional:
-- `--models`: Comma-separated benchmark model keys (default: all from models.yaml)
+- `--config`: Run-matrix YAML with explicit provider/model pairs (default: `configs/run-matrix.yaml`)
+- `--providers`: Comma-separated provider names for cross-product mode
+- `--models`: Comma-separated benchmark model keys for cross-product mode
 - `--out`: Output directory base name (default: `results`)
 - `--scoring`: Path to scoring config (default: `configs/scoring.yaml`)
 - `--efficiency`: Path to efficiency config (default: `configs/efficiency.yaml`)
 - `--verbosity`: quiet, normal, or debug
 
+Run-matrix example:
+```yaml
+runs:
+  - provider: codex
+    model: gpt-5.2-codex
+  - provider: octomind
+    model: minimax-m2.5
+```
+
+Command:
+```bash
+python3 -m cli.main run --cases cases --config configs/run-matrix.yaml
+```
+
 ## What happens in a run
-For each case, provider, and benchmark model:
+For each case and selected run target (provider + benchmark model pair):
 1. Creates an isolated workspace.
 2. Copies scripts to workspace.
 3. Runs `setup.sh` (responsible for full setup).
