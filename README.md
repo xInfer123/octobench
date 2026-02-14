@@ -1,5 +1,7 @@
 # octobench
 
+> **WIP Notice:** This project is actively under development and APIs/behavior may change without notice. Use at your own risk while we stabilize it.
+
 Benchmark framework to compare **LLM tool + config + prompt** setups across a shared set of cases.
 
 ## Key ideas
