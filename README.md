@@ -4,6 +4,8 @@
 
 Benchmark framework to compare **LLM tool + config + prompt** setups across a shared set of cases.
 
+Contribution guide: see `CONTRIBUTING.md` (focused on adding new cases).
+
 ## Key ideas
 - **Cases** define prompts and scripts.
 - **Providers** are Python implementations that run tools and return normalized telemetry.
