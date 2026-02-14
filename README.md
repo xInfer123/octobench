@@ -27,6 +27,17 @@ python3 -m cli.main run --cases cases --providers codex,octomind --verbosity nor
 
 Results land in `results/` as JSON.
 
+## Development checks
+Install and enable pre-commit hooks:
+
+```bash
+pip install pre-commit
+pre-commit install
+pre-commit run --all-files
+```
+
+CI runs the same `pre-commit` checks on every pull request, plus a Python compile check.
+
 ## Cases
 Each case is a folder with a `case.yaml` plus optional scripts:
 
