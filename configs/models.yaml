@@ -150,4 +150,3 @@ models:
       output: 8.00
     providers:
       octomind: deepseek:deepseek-reasoner
-

@@ -7,7 +7,6 @@ from typing import Dict
 from judges.prompts import JUDGE_SYSTEM, JUDGE_TEMPLATE
 from runners.cli_runner import run_cli
 
-
 ANSI_ESCAPE_RE = re.compile(r"\x1B[@-_][0-?]*[ -/]*[@-~]")
 
 
@@ -101,15 +100,12 @@ def run_judge(prompt_payload: Dict, judge_cfg: Dict, workdir: str) -> Dict:
     validation_log = prompt_payload.get("validation_log", "")
     evidence_log = prompt_payload.get("evidence_log", "")
 
-    prompt = (
-        f"System:\n{JUDGE_SYSTEM}\n\n"
-        + JUDGE_TEMPLATE.format(
-            task=task,
-            prep_log=prep_log,
-            quality_log=quality_log,
-            validation_log=validation_log,
-            evidence_log=evidence_log,
-        )
+    prompt = f"System:\n{JUDGE_SYSTEM}\n\n" + JUDGE_TEMPLATE.format(
+        task=task,
+        prep_log=prep_log,
+        quality_log=quality_log,
+        validation_log=validation_log,
+        evidence_log=evidence_log,
     )
 
     result = run_cli(prompt, workdir, judge_cfg)

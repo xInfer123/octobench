@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import os
 import json
+import os
 import re
 import subprocess
 import time
@@ -106,7 +106,7 @@ def run_cli(prompt: str, workdir: str, meta: Dict) -> RunResult:
     stdout = ""
     if os.path.exists(output_file):
         try:
-            with open(output_file, "r", encoding="utf-8") as f:
+            with open(output_file, encoding="utf-8") as f:
                 stdout = f.read()
         except Exception:
             stdout = proc_stdout

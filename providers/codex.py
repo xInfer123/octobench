@@ -50,7 +50,7 @@ class CodexProvider(Provider):
         stdout = ""
         if os.path.exists(output_file):
             try:
-                with open(output_file, "r", encoding="utf-8") as f:
+                with open(output_file, encoding="utf-8") as f:
                     stdout = f.read().strip()
             except Exception:
                 stdout = (proc.stdout or "").strip()
@@ -82,7 +82,11 @@ class CodexProvider(Provider):
             if not item_type:
                 return None
             type_lower = item_type.lower()
-            if "tool" not in type_lower and "command" not in type_lower and "function" not in type_lower:
+            if (
+                "tool" not in type_lower
+                and "command" not in type_lower
+                and "function" not in type_lower
+            ):
                 return None
 
             name = (

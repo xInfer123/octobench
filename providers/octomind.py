@@ -9,7 +9,6 @@ from typing import Any, Optional
 
 from providers.base import Provider, ProviderRunResult
 
-
 ANSI_ESCAPE_RE = re.compile(r"\x1B[@-_][0-?]*[ -/]*[@-~]")
 
 

@@ -45,7 +45,12 @@ def compute_efficiency_score(
     return round(min(100.0, max(0.0, eff)), 2)
 
 
-def compute_cost(input_tokens: Optional[int], cached_input_tokens: Optional[int], output_tokens: Optional[int], pricing: Dict) -> Optional[float]:
+def compute_cost(
+    input_tokens: Optional[int],
+    cached_input_tokens: Optional[int],
+    output_tokens: Optional[int],
+    pricing: Dict,
+) -> Optional[float]:
     if input_tokens is None or output_tokens is None:
         return None
     inp = pricing.get("input")
@@ -61,10 +66,16 @@ def compute_cost(input_tokens: Optional[int], cached_input_tokens: Optional[int]
     billable_input = max(input_tokens, 0)
     cached_rate = cached_inp if cached_inp is not None else inp
     per = 1_000_000.0
-    return (billable_input / per) * inp + (cached_tokens / per) * cached_rate + (output_tokens / per) * out
+    return (
+        (billable_input / per) * inp
+        + (cached_tokens / per) * cached_rate
+        + (output_tokens / per) * out
+    )
 
 
-def compute_final_score(judge_score: float, efficiency_score: Optional[float], weights: Dict) -> float:
+def compute_final_score(
+    judge_score: float, efficiency_score: Optional[float], weights: Dict
+) -> float:
     judge_weight = weights.get("judge_weight", 0.8)
     efficiency_weight = weights.get("efficiency_weight", 0.2)
     eff = efficiency_score if efficiency_score is not None else 0.0

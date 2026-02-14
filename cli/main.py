@@ -10,8 +10,8 @@ import re
 import shutil
 import subprocess
 import sys
-import time
 import threading
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List
@@ -95,7 +95,11 @@ def snapshot_files(workdir: Path) -> Dict[str, Dict]:
     for path in workdir.rglob("*"):
         if path.is_file():
             rel = str(path.relative_to(workdir))
-            if rel.startswith("_provider_output_") or rel.startswith("_prompt_") or rel.startswith("_output_"):
+            if (
+                rel.startswith("_provider_output_")
+                or rel.startswith("_prompt_")
+                or rel.startswith("_output_")
+            ):
                 continue
             if _is_gitignored(path, workdir, rules):
                 continue
@@ -123,7 +127,9 @@ def diff_snapshots(before: Dict[str, Dict], after: Dict[str, Dict]) -> Dict:
     after_set = set(after.keys())
     added = sorted(after_set - before_set)
     deleted = sorted(before_set - after_set)
-    modified = sorted(k for k in (before_set & after_set) if before[k]["sha256"] != after[k]["sha256"])
+    modified = sorted(
+        k for k in (before_set & after_set) if before[k]["sha256"] != after[k]["sha256"]
+    )
     return {"added": added, "deleted": deleted, "modified": modified}
 
 
@@ -156,7 +162,7 @@ def build_evidence(before: Dict[str, Dict], after: Dict[str, Dict], diff: Dict) 
 
 
 def load_yaml(path: Path) -> Dict:
-    with open(path, "r", encoding="utf-8") as f:
+    with open(path, encoding="utf-8") as f:
         return yaml.safe_load(f)
 
 
@@ -200,7 +206,11 @@ def run_script(
             if verbosity != "quiet":
                 line = raw.rstrip("\n")
                 if line:
-                    log(f"[octobench] script={script_name} {stream_label}: {line}", verbosity, "normal")
+                    log(
+                        f"[octobench] script={script_name} {stream_label}: {line}",
+                        verbosity,
+                        "normal",
+                    )
         stream.close()
 
     t_out = threading.Thread(target=pump, args=(proc.stdout, stdout_lines, "stdout"), daemon=True)
@@ -234,7 +244,9 @@ def ensure_workspace(case_dir: Path, run_dir: Path) -> Path:
 
 
 def build_task_prompt(case: Dict) -> str:
-    return f"System:\n{case.get('system_prompt', '')}\n\nInstruction:\n{case.get('instruction', '')}\n"
+    return (
+        f"System:\n{case.get('system_prompt', '')}\n\nInstruction:\n{case.get('instruction', '')}\n"
+    )
 
 
 def parse_selected_models(models_cfg: Dict, models_arg: str | None) -> List[str]:
@@ -254,7 +266,8 @@ def resolve_provider_model(models_cfg: Dict, benchmark_model: str, provider: str
     mapped = providers.get(provider)
     if mapped is None:
         raise RuntimeError(
-            f"Missing provider mapping for benchmark_model '{benchmark_model}' and provider '{provider}'"
+            "Missing provider mapping for benchmark_model "
+            f"'{benchmark_model}' and provider '{provider}'"
         )
     if isinstance(mapped, dict):
         model_id = mapped.get("id")
@@ -262,7 +275,8 @@ def resolve_provider_model(models_cfg: Dict, benchmark_model: str, provider: str
         model_id = mapped
     if not model_id:
         raise RuntimeError(
-            f"Invalid provider mapping for benchmark_model '{benchmark_model}' and provider '{provider}'"
+            "Invalid provider mapping for benchmark_model "
+            f"'{benchmark_model}' and provider '{provider}'"
         )
     return str(model_id)
 
@@ -337,18 +351,26 @@ def main() -> None:
     selected_models = parse_selected_models(models_cfg, args.models)
     selected_providers = parse_providers(args.providers)
 
-    scoring_cfg = load_yaml(Path(args.scoring)) if Path(args.scoring).exists() else {
-        "judge_weight": 0.85,
-        "efficiency_weight": 0.15,
-    }
-    efficiency_cfg = load_yaml(Path(args.efficiency)) if Path(args.efficiency).exists() else {
-        "latency_ms": 8000,
-        "cost_usd": 0.2,
-        "tps": 50,
-        "weight_latency": 0.4,
-        "weight_cost": 0.4,
-        "weight_tps": 0.2,
-    }
+    scoring_cfg = (
+        load_yaml(Path(args.scoring))
+        if Path(args.scoring).exists()
+        else {
+            "judge_weight": 0.85,
+            "efficiency_weight": 0.15,
+        }
+    )
+    efficiency_cfg = (
+        load_yaml(Path(args.efficiency))
+        if Path(args.efficiency).exists()
+        else {
+            "latency_ms": 8000,
+            "cost_usd": 0.2,
+            "tps": 50,
+            "weight_latency": 0.4,
+            "weight_cost": 0.4,
+            "weight_tps": 0.2,
+        }
+    )
 
     case_files = find_case_files(cases_root)
 
@@ -361,7 +383,10 @@ def main() -> None:
     provider_impls = {name: get_provider(name, repo_root) for name in selected_providers}
 
     log(
-        f"[octobench] loaded {len(selected_models)} model(s), {len(selected_providers)} provider(s), cases from {cases_root}",
+        (
+            f"[octobench] loaded {len(selected_models)} model(s), "
+            f"{len(selected_providers)} provider(s), cases from {cases_root}"
+        ),
         verbosity,
         "normal",
     )
@@ -385,7 +410,11 @@ def main() -> None:
                 logs_dir.mkdir(parents=True, exist_ok=True)
 
                 log(
-                    f"[octobench] run provider={provider_name} benchmark_model={benchmark_model} provider_model={provider_model}",
+                    (
+                        f"[octobench] run provider={provider_name} "
+                        f"benchmark_model={benchmark_model} "
+                        f"provider_model={provider_model}"
+                    ),
                     verbosity,
                     "debug",
                 )
@@ -397,10 +426,16 @@ def main() -> None:
                     "CASE_DIR": str(case_dir.resolve()),
                     "WORKDIR": str(workdir_abs),
                 }
-                setup_log = run_script(case_dir / "setup.sh", workdir_abs, env=env, verbosity=verbosity)
+                setup_log = run_script(
+                    case_dir / "setup.sh", workdir_abs, env=env, verbosity=verbosity
+                )
                 if setup_log["exit_code"] != 0:
-                    quality_log = run_script(case_dir / "quality.sh", workdir_abs, env=env, verbosity=verbosity)
-                    validation_log = run_script(case_dir / "validate.sh", workdir_abs, env=env, verbosity=verbosity)
+                    quality_log = run_script(
+                        case_dir / "quality.sh", workdir_abs, env=env, verbosity=verbosity
+                    )
+                    validation_log = run_script(
+                        case_dir / "validate.sh", workdir_abs, env=env, verbosity=verbosity
+                    )
                     write_text(logs_dir / "setup.stdout.log", setup_log["stdout"])
                     write_text(logs_dir / "setup.stderr.log", setup_log["stderr"])
                     write_text(logs_dir / "quality.stdout.log", quality_log["stdout"])
@@ -412,9 +447,7 @@ def main() -> None:
                     detail = setup_err if setup_err else setup_out
                     if detail:
                         detail = detail[-1200:]
-                        setup_failed_msg = (
-                            f"setup failed (exit={setup_log['exit_code']}): {detail}"
-                        )
+                        setup_failed_msg = f"setup failed (exit={setup_log['exit_code']}): {detail}"
                     else:
                         setup_failed_msg = f"setup failed (exit={setup_log['exit_code']})"
                     judge_payload = {
@@ -442,7 +475,13 @@ def main() -> None:
                             "exit_code": 1,
                             "elapsed_ms": 0,
                         },
-                        "tokens": {"input": None, "cached_input": None, "output": None, "reasoning": None, "total": None},
+                        "tokens": {
+                            "input": None,
+                            "cached_input": None,
+                            "output": None,
+                            "reasoning": None,
+                            "total": None,
+                        },
                         "cost_usd": None,
                         "scripts": {
                             "setup": setup_log,
@@ -462,7 +501,10 @@ def main() -> None:
                 prompt = build_task_prompt(case)
                 before = snapshot_files(workdir_abs)
 
-                session_name = f"octobench-{case_id}-{provider_name}-{safe_id(benchmark_model)}-{int(time.time()*1000)}"
+                session_name = (
+                    f"octobench-{case_id}-{provider_name}-"
+                    f"{safe_id(benchmark_model)}-{int(time.time() * 1000)}"
+                )
                 provider_result = provider_impl.run_task(
                     prompt=prompt,
                     workdir=str(workdir_abs),
@@ -470,11 +512,14 @@ def main() -> None:
                     session_name=session_name,
                 )
                 if provider_result.exit_code != 0:
-                    err_tail = ((provider_result.stderr or "").strip() or (provider_result.stdout or "").strip())
+                    err_tail = (provider_result.stderr or "").strip() or (
+                        provider_result.stdout or ""
+                    ).strip()
                     if err_tail:
                         err_tail = err_tail[-1200:]
                     raise RuntimeError(
-                        f"Provider failed: case={case_id} provider={provider_name} model={benchmark_model} "
+                        f"Provider failed: case={case_id} provider={provider_name} "
+                        f"model={benchmark_model} "
                         f"exit={provider_result.exit_code}"
                         + (f" details={err_tail}" if err_tail else "")
                     )
@@ -492,14 +537,16 @@ def main() -> None:
                     )
                 if evidence_log_diff:
                     evidence_parts.append(
-                        "<evidence_diff>\n"
-                        + evidence_log_diff.strip()
-                        + "\n</evidence_diff>"
+                        "<evidence_diff>\n" + evidence_log_diff.strip() + "\n</evidence_diff>"
                     )
                 evidence_log = "\n\n".join(p for p in evidence_parts if p)
 
-                quality_log = run_script(case_dir / "quality.sh", workdir_abs, env=env, verbosity=verbosity)
-                validation_log = run_script(case_dir / "validate.sh", workdir_abs, env=env, verbosity=verbosity)
+                quality_log = run_script(
+                    case_dir / "quality.sh", workdir_abs, env=env, verbosity=verbosity
+                )
+                validation_log = run_script(
+                    case_dir / "validate.sh", workdir_abs, env=env, verbosity=verbosity
+                )
                 write_text(logs_dir / "setup.stdout.log", setup_log["stdout"])
                 write_text(logs_dir / "setup.stderr.log", setup_log["stderr"])
                 write_text(logs_dir / "quality.stdout.log", quality_log["stdout"])
@@ -568,7 +615,10 @@ def main() -> None:
                 }
                 all_results.append(record)
                 log(
-                    f"[octobench] completed case={case_id} setup={setup_name} exit={provider_result.exit_code}",
+                    (
+                        f"[octobench] completed case={case_id} "
+                        f"setup={setup_name} exit={provider_result.exit_code}"
+                    ),
                     verbosity,
                     "normal",
                 )

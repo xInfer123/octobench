@@ -17,4 +17,4 @@ target-version = "py39"
 line-length = 100
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "UP"]
+select = ["E", "F"]
