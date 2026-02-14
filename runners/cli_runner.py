@@ -144,7 +144,7 @@ def run_cli(prompt: str, workdir: str, meta: Dict) -> RunResult:
                 meta_cost = obj.get("meta", {})
                 raw_in = meta_cost.get("input_tokens")
                 raw_out = meta_cost.get("output_tokens")
-                raw_cached = meta_cost.get("cached_tokens")
+                raw_cached = meta_cost.get("cache_read_tokens", meta_cost.get("cached_tokens"))
                 raw_total = meta_cost.get("session_tokens")
                 try:
                     if raw_in is not None:

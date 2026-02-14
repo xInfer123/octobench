@@ -25,21 +25,23 @@ Schema keys:
 - confidence (0-1)
 
 Inputs:
-=== Task ===
+<task>
 {task}
+</task>
 
-=== Model Output ===
-{model_output}
-
-=== Setup Log ===
+<setup_log>
 {prep_log}
+</setup_log>
 
-=== Quality Log ===
+<quality_log>
 {quality_log}
+</quality_log>
 
-=== Validation Log ===
+<validation_log>
 {validation_log}
+</validation_log>
 
-=== Evidence Log ===
+<evidence_log>
 {evidence_log}
+</evidence_log>
 """

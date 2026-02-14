@@ -20,7 +20,7 @@ fi
 missing=0
 while IFS= read -r model; do
   [[ -z "${model}" ]] && continue
-  if ! grep -Fq "${model}" "${MINIMAX_FILE}"; then
+  if ! grep -Fqi "${model}" "${MINIMAX_FILE}"; then
     echo "missing minimax model string: ${model}"
     missing=1
   fi

@@ -299,7 +299,7 @@ def default_judge_cfg(repo_root: Path) -> Dict:
         "runner": "cli",
         "model": "openrouter:anthropic/claude-sonnet-4",
         "stdin_prompt": True,
-        "command": ["octomind", "run", "--role", "judge", "--mode", "jsonl"],
+        "command": ["octomind", "run", "--role", "judge", "--format", "jsonl"],
         "json_events": True,
         "env": {
             "OCTOMIND_CONFIG_PATH": f"{repo_root}/configs/octomind/octomind.toml",
@@ -419,7 +419,6 @@ def main() -> None:
                         setup_failed_msg = f"setup failed (exit={setup_log['exit_code']})"
                     judge_payload = {
                         "task": "",
-                        "model_output": "",
                         "prep_log": setup_log["stdout"] + setup_log["stderr"],
                         "quality_log": quality_log["stdout"] + quality_log["stderr"],
                         "validation_log": validation_log["stdout"] + validation_log["stderr"],
@@ -484,7 +483,20 @@ def main() -> None:
                 diff = diff_snapshots(before, after)
                 evidence_log_diff = build_evidence(before, after, diff)
                 provider_evidence = provider_impl.build_provider_evidence(provider_result)
-                evidence_log = provider_evidence if provider_evidence else evidence_log_diff
+                evidence_parts = []
+                if provider_evidence:
+                    evidence_parts.append(
+                        "<provider_evidence>\n"
+                        + provider_evidence.strip()
+                        + "\n</provider_evidence>"
+                    )
+                if evidence_log_diff:
+                    evidence_parts.append(
+                        "<evidence_diff>\n"
+                        + evidence_log_diff.strip()
+                        + "\n</evidence_diff>"
+                    )
+                evidence_log = "\n\n".join(p for p in evidence_parts if p)
 
                 quality_log = run_script(case_dir / "quality.sh", workdir_abs, env=env, verbosity=verbosity)
                 validation_log = run_script(case_dir / "validate.sh", workdir_abs, env=env, verbosity=verbosity)
@@ -499,7 +511,6 @@ def main() -> None:
 
                 judge_payload = {
                     "task": prompt,
-                    "model_output": (provider_result.stdout or "") + (provider_result.stderr or ""),
                     "prep_log": setup_log["stdout"] + setup_log["stderr"],
                     "quality_log": quality_log["stdout"] + quality_log["stderr"],
                     "validation_log": validation_log["stdout"] + validation_log["stderr"],
@@ -570,10 +581,15 @@ def main() -> None:
                 r["result"]["elapsed_ms"], r["tokens"]["total"], r.get("cost_usd"), efficiency_cfg
             )
             validation_failed = r["scripts"]["validate"]["exit_code"] != 0
-            final_score = 0.0 if validation_failed else compute_final_score(judge_score, efficiency, scoring_cfg)
+            raw_final_score = compute_final_score(judge_score, efficiency, scoring_cfg)
+            validation_fail_penalty = float(scoring_cfg.get("validation_fail_penalty", 25.0))
+            penalty_applied = validation_fail_penalty if validation_failed else 0.0
+            final_score = round(max(0.0, raw_final_score - penalty_applied), 2)
             r["scoring"].update(
                 {
                     "efficiency_score": efficiency,
+                    "raw_final_score": raw_final_score,
+                    "validation_penalty": penalty_applied,
                     "final_score": final_score,
                     "validation_failed": validation_failed,
                     "judge_weight": scoring_cfg.get("judge_weight", 0.85),

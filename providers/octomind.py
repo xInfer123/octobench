@@ -18,24 +18,6 @@ def _clean(text: str) -> str:
     return "".join(ch for ch in text if ch in ("\n", "\t", "\r") or ord(ch) >= 32)
 
 
-def _parse_compact_tokens(value: str) -> Optional[int]:
-    v = value.strip().upper().replace(",", "")
-    mul = 1
-    if v.endswith("K"):
-        mul = 1_000
-        v = v[:-1]
-    elif v.endswith("M"):
-        mul = 1_000_000
-        v = v[:-1]
-    elif v.endswith("B"):
-        mul = 1_000_000_000
-        v = v[:-1]
-    try:
-        return int(float(v) * mul)
-    except Exception:
-        return None
-
-
 def _compact_text(value: Any, limit: int = 220) -> str:
     if value is None:
         return ""
@@ -65,7 +47,19 @@ def _iter_jsonl_records(text: str) -> list[dict[str, Any]]:
     return records
 
 
-def _extract_from_jsonl(records: list[dict[str, Any]]) -> tuple[str, list[str], list[str], list[str], Optional[int], Optional[int], Optional[int], Optional[int]]:
+def _extract_from_jsonl(
+    records: list[dict[str, Any]],
+) -> tuple[
+    str,
+    list[str],
+    list[str],
+    list[str],
+    Optional[int],
+    Optional[int],
+    Optional[int],
+    Optional[int],
+    Optional[int],
+]:
     assistant_messages: list[str] = []
     tool_intents: list[str] = []
     tool_results: list[str] = []
@@ -73,7 +67,9 @@ def _extract_from_jsonl(records: list[dict[str, Any]]) -> tuple[str, list[str], 
     input_tokens: Optional[int] = None
     cached_tokens: Optional[int] = None
     output_tokens: Optional[int] = None
+    reasoning_tokens: Optional[int] = None
     total_tokens: Optional[int] = None
+    last_cost_meta: Optional[dict[str, Any]] = None
 
     for obj in records:
         typ = str(obj.get("type", "")).strip().lower()
@@ -105,26 +101,32 @@ def _extract_from_jsonl(records: list[dict[str, Any]]) -> tuple[str, list[str], 
                 parts.append(f"duration_ms={duration_ms}")
             tool_results.append(", ".join(parts))
         elif typ == "cost":
-            meta = obj.get("meta") if isinstance(obj.get("meta"), dict) else {}
-            raw_in = meta.get("input_tokens")
-            raw_out = meta.get("output_tokens")
-            raw_cached = meta.get("cached_tokens")
-            raw_total = meta.get("session_tokens")
-            try:
-                if raw_in is not None:
-                    input_tokens = int(raw_in)
-                if raw_out is not None:
-                    output_tokens = int(raw_out)
-                if raw_cached is not None:
-                    cached_tokens = int(raw_cached)
-                if raw_total is not None:
-                    total_tokens = int(raw_total)
-            except Exception:
-                pass
+            # Keep the latest cost message; it contains final session usage.
+            if isinstance(obj.get("meta"), dict):
+                last_cost_meta = obj.get("meta")
 
-    # Canonical total tokens should include cached when known.
-    if input_tokens is not None and output_tokens is not None:
-        total_tokens = input_tokens + output_tokens + (cached_tokens or 0)
+    if last_cost_meta is not None:
+        raw_in = last_cost_meta.get("input_tokens")
+        raw_out = last_cost_meta.get("output_tokens")
+        raw_cached = last_cost_meta.get("cache_read_tokens", last_cost_meta.get("cached_tokens"))
+        raw_reasoning = last_cost_meta.get("reasoning_tokens")
+        raw_total = last_cost_meta.get("session_tokens")
+        try:
+            if raw_in is not None:
+                input_tokens = int(raw_in)
+            if raw_out is not None:
+                output_tokens = int(raw_out)
+            if raw_cached is not None:
+                cached_tokens = int(raw_cached)
+            if raw_reasoning is not None:
+                reasoning_tokens = int(raw_reasoning)
+            if raw_total is not None:
+                total_tokens = int(raw_total)
+        except Exception:
+            pass
+
+    if total_tokens is None and input_tokens is not None and output_tokens is not None:
+        total_tokens = input_tokens + output_tokens + (cached_tokens or 0) + (reasoning_tokens or 0)
 
     final_text = assistant_messages[-1] if assistant_messages else ""
     return (
@@ -135,63 +137,9 @@ def _extract_from_jsonl(records: list[dict[str, Any]]) -> tuple[str, list[str], 
         input_tokens,
         cached_tokens,
         output_tokens,
+        reasoning_tokens,
         total_tokens,
     )
-
-
-def _parse_info(stdout: str) -> tuple[Optional[int], Optional[int], Optional[int], Optional[int], Optional[int]]:
-    text = _clean(stdout)
-
-    # Preferred detailed breakdown (new):
-    # "Breakdown: 0 input, 0 output, 0 cached, 0 reasoning"
-    # Backward-compatible (old):
-    # "Breakdown: 2.1K processed, 15 output, 0 cached"
-    input_tokens = output = cached = total = reasoning = None
-
-    m_new = re.search(
-        r"Breakdown:\s*([0-9.,KMBkmb]+)\s+input,\s*([0-9.,KMBkmb]+)\s+output,\s*([0-9.,KMBkmb]+)\s+cached,\s*([0-9.,KMBkmb]+)\s+reasoning",
-        text,
-    )
-    if m_new:
-        input_tokens = _parse_compact_tokens(m_new.group(1))
-        output = _parse_compact_tokens(m_new.group(2))
-        cached = _parse_compact_tokens(m_new.group(3))
-        reasoning = _parse_compact_tokens(m_new.group(4))
-        if input_tokens is not None and output is not None and cached is not None:
-            total = input_tokens + output + cached + (reasoning or 0)
-
-    if input_tokens is None:
-        m_old = re.search(
-            r"Breakdown:\s*([0-9.,KMBkmb]+)\s+processed,\s*([0-9.,KMBkmb]+)\s+output,\s*([0-9.,KMBkmb]+)\s+cached",
-            text,
-        )
-        if m_old:
-            input_tokens = _parse_compact_tokens(m_old.group(1))
-            output = _parse_compact_tokens(m_old.group(2))
-            cached = _parse_compact_tokens(m_old.group(3))
-            if input_tokens is not None and output is not None and cached is not None:
-                total = input_tokens + output + cached
-
-    if total is None:
-        mt = re.search(r"Total tokens:\s*([0-9.,KMBkmb]+)", text)
-        if mt:
-            total = _parse_compact_tokens(mt.group(1))
-
-    if output is None:
-        mo = re.search(r"\b([0-9.,KMBkmb]+)\s+output\b", text)
-        if mo:
-            output = _parse_compact_tokens(mo.group(1))
-
-    if cached is None:
-        mc = re.search(r"\b([0-9.,KMBkmb]+)\s+cached\b", text)
-        if mc:
-            cached = _parse_compact_tokens(mc.group(1))
-
-    # Canonical semantics: input excludes cached.
-    if input_tokens is None and total is not None and output is not None and cached is not None:
-        input_tokens = max(total - output - cached, 0)
-
-    return input_tokens, cached, output, reasoning, total
 
 
 class OctomindProvider(Provider):
@@ -219,7 +167,7 @@ class OctomindProvider(Provider):
             "developer",
             "--model",
             provider_model,
-            "--mode",
+            "--format",
             "jsonl",
             prompt,
         ]
@@ -244,6 +192,7 @@ class OctomindProvider(Provider):
             input_tokens,
             cached_input_tokens,
             output_tokens,
+            reasoning_tokens,
             total_tokens,
         ) = _extract_from_jsonl(records)
 
@@ -259,7 +208,7 @@ class OctomindProvider(Provider):
             input_tokens=input_tokens,
             cached_input_tokens=cached_input_tokens,
             output_tokens=output_tokens,
-            reasoning_tokens=None,
+            reasoning_tokens=reasoning_tokens,
             total_tokens=total_tokens,
             provider_trace={
                 "assistant_messages": assistant_messages,

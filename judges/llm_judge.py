@@ -96,7 +96,6 @@ def _extract_json(text: str) -> Dict:
 
 def run_judge(prompt_payload: Dict, judge_cfg: Dict, workdir: str) -> Dict:
     task = prompt_payload["task"]
-    model_output = prompt_payload["model_output"]
     prep_log = prompt_payload.get("prep_log", "")
     quality_log = prompt_payload.get("quality_log", "")
     validation_log = prompt_payload.get("validation_log", "")
@@ -106,7 +105,6 @@ def run_judge(prompt_payload: Dict, judge_cfg: Dict, workdir: str) -> Dict:
         f"System:\n{JUDGE_SYSTEM}\n\n"
         + JUDGE_TEMPLATE.format(
             task=task,
-            model_output=model_output,
             prep_log=prep_log,
             quality_log=quality_log,
             validation_log=validation_log,
